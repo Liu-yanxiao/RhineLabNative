@@ -20,6 +20,8 @@ struct Frame {
     float4 post;        // x focusDistance, y dof strength, z effects off, w back-scatter strength
     float4 clip;        // near, far, aperture, max blur
     float4 ao;          // radius, strength, bias, tap count
+    float4 keyA;        // strip light endpoints in world space (w = 1 when the key is a strip)
+    float4 keyB;
 };
 
 struct Inst { float4 posTilt; float4 yawQR; };   // pos+tilt, yaw/quality/reveal
@@ -122,7 +124,8 @@ float shadowFactor(constant Frame &f, depth2d<float> map, float3 wpos, float3 N,
 struct Lit { float3 diffuse; float3 spec; };
 
 Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, float3 N, float3 V, float shadow,
-                 texturecube<float> envSpec, texturecube<float> envIrr, float clearcoat = 0.0, float ccRough = 0.25) {
+                 texturecube<float> envSpec, texturecube<float> envIrr, float clearcoat = 0.0, float ccRough = 0.25,
+                 float3 wpos = float3(0)) {
     constexpr sampler cubeS(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge);
     float3 diffC = albedo * (1 - metal);
     float3 F0 = mix(float3(0.04), albedo, metal);
@@ -131,13 +134,31 @@ Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, flo
     Lit L; L.diffuse = float3(0); L.spec = float3(0);
     for (int i = 0; i < 2; i++) {
         float3 Ld = i == 0 ? f.keyDir.xyz : f.fillDir.xyz;
+        float3 Ls = Ld;              // direction used for the specular lobe
+        float energy = 1.0;          // GGX normalisation for an extended light
+        if (i == 0 && f.keyA.w > 0.5) {
+            // Strip light (Karis 2013 representative point): the nearest point of the strip to the
+            // reflection ray feeds the specular lobe, the nearest point to the surface feeds diffuse.
+            float3 P0 = f.keyA.xyz - wpos, P1 = f.keyB.xyz - wpos, Lv = P1 - P0;
+            float LoL = max(dot(Lv, Lv), 1e-4);
+            float td = saturate(-dot(P0, Lv) / LoL);
+            float3 nearest = P0 + Lv * td;
+            float dist = max(length(nearest), 1e-3);
+            Ld = nearest / dist;
+            float3 R = reflect(-V, N);
+            float RoL0 = dot(R, P0), RoLv = dot(R, Lv), L0oLv = dot(P0, Lv);
+            float ts = saturate((RoLv * RoL0 - L0oLv) / max(LoL - RoLv * RoLv, 1e-4));
+            Ls = normalize(P0 + Lv * ts);
+            float ap = saturate(a + sqrt(LoL) / (2.0 * dist));
+            energy = (a / ap) * (a / ap);
+        }
         float3 col = (i == 0 ? f.keyColor.rgb : f.fillColor.rgb) * (i == 0 ? shadow : 1.0);
         float NoL = saturate(dot(N, Ld));
         if (NoL <= 0) continue;
-        float3 H = normalize(Ld + V);
+        float3 H = normalize(Ls + V);
         float NoH = saturate(dot(N, H)), VoH = saturate(dot(V, H));
         float d2 = NoH * NoH * (a * a - 1) + 1;
-        float D = a * a / (PI * d2 * d2);
+        float D = a * a / (PI * d2 * d2) * energy;
         float gv = NoL * sqrt(NoV * NoV * (1 - a * a) + a * a);
         float gl = NoV * sqrt(NoL * NoL * (1 - a * a) + a * a);
         float Vis = 0.5 / max(gv + gl, 1e-4);
@@ -196,7 +217,7 @@ fragment float4 fs_surface(VOut in [[stage_in]], bool front [[front_facing]],
     if (!front) N = -N;
     float3 V = normalize(f.camPos.xyz - in.wpos);
     float shadow = shadowFactor(f, shadowMap, in.wpos, N, in.position.xy);
-    Lit L = lightSurface(f, albedo, metal, rough, N, V, shadow, envSpec, envIrr);
+    Lit L = lightSurface(f, albedo, metal, rough, N, V, shadow, envSpec, envIrr, 0.0, 0.25, in.wpos);
     float3 color = applyFog(f, L.diffuse + L.spec, in.wpos);
     return float4(color, 1);
 }
@@ -255,7 +276,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     }
     float shadow = shadowFactor(f, shadowMap, in.wpos, N, in.position.xy);
     float clearcoat = m.p2.x * (1.0 - q) * (1.0 - clearing);
-    Lit L = lightSurface(f, albedo, mix(m.p0.x, m.p0.y, q), rough, N, V, shadow, envSpec, envIrr, clearcoat, m.p2.y);
+    Lit L = lightSurface(f, albedo, mix(m.p0.x, m.p0.y, q), rough, N, V, shadow, envSpec, envIrr, clearcoat, m.p2.y, in.wpos);
 
     // Refraction: where the view ray leaves the slab, read the blurred opaque capture.
     float3 rv = refract(-V, N, 1.0 / ior);

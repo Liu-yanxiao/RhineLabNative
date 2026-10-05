@@ -22,6 +22,8 @@ struct FrameUniforms {
     var post = SIMD4<Float>(0, 0, 0, 0)
     var clip = SIMD4<Float>(10, 300, 0, 0.011)   // near, far, aperture, max blur
     var ao = SIMD4<Float>(0.5, 1.2, 0.05, 0)     // radius, strength, bias
+    var keyA = SIMD4<Float>(0, 0, 0, 0)         // strip light endpoints (w = 1: strip, 0: directional)
+    var keyB = SIMD4<Float>(0, 0, 0, 0)
 }
 
 struct InstanceData {
@@ -462,9 +464,17 @@ final class MetalRenderer {
         var u = FrameUniforms()
         u.view = frame.view; u.proj = frame.proj
         u.viewProj = frame.proj * frame.view
-        let lightEye = Look.vector("RL_KEY_POS", SIMD3<Float>(-8, 10, -10))
+        // Key light: a strip (two world-space endpoints) unless RL_LINE=0, in which case a directional
+        // light from RL_KEY_POS. The shadow map projects along the strip's midpoint direction.
+        let strip = Look.number("RL_LINE", 1) > 0.5
+        let stripA = Look.vector("RL_LINE_A", SIMD3<Float>(-70, 4, 60))
+        let stripB = Look.vector("RL_LINE_B", SIMD3<Float>(-30, 4, -30))
+        let lightEye = strip ? (stripA + stripB) * 0.5 : Look.vector("RL_KEY_POS", SIMD3<Float>(-8, 10, -10))
         let lightView = Matrix.lookAt(eye: lightEye, target: .zero, up: SIMD3(0, 1, 0))
-        u.lightViewProj = Matrix.orthographic(left: -16, right: 16, bottom: -15, top: 15, near: 0.1, far: 45) * lightView
+        let reach = simd_length(lightEye)
+        u.lightViewProj = Matrix.orthographic(left: -16, right: 16, bottom: -15, top: 15, near: 0.1, far: reach + 40) * lightView
+        u.keyA = SIMD4(stripA, strip ? 1 : 0)
+        u.keyB = SIMD4(stripB, strip ? 1 : 0)
         u.camPos = SIMD4(frame.cameraPosition, 1)
         // Dark theme (web `themeEnvironment`): exposure 1.0 → 0.98, environment 0.52 → 0.32, lights × 0.65.
         let th = max(0, min(1, frame.themeAmount))
@@ -530,13 +540,17 @@ final class MetalRenderer {
             e.setFrontFacing(.counterClockwise)
             e.setVertexBytes(&u, length: MemoryLayout<FrameUniforms>.stride, index: 1)
             if frame.assembly == nil {
-                if let m = arrayMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
+                // Web: only the diffuser casts. Video look (RL_SHADOW_ALL, default on): the whole shell
+                // casts, so the strip light throws real shadows between the cards.
+                let casters: Set<String> = Look.number("RL_SHADOW_ALL", 1) > 0.5
+                    ? ["Optical_Diffuser", "Frosted_Polymer", "Ivory_Edges"] : ["Optical_Diffuser"]
+                for m in arrayMeshes where casters.contains(m.name) {
                     e.setVertexBuffer(m.vertices, offset: 0, index: 0)
                     e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
                     e.drawIndexedPrimitives(type: .triangle, indexCount: m.indexCount, indexType: .uint32,
                                             indexBuffer: m.indices, indexBufferOffset: 0, instanceCount: count)
                 }
-                if let m = cardMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
+                for m in cardMeshes where casters.contains(m.name) {
                     e.setVertexBuffer(m.vertices, offset: 0, index: 0)
                     for var inst in cardInstances {
                         e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
