@@ -23,10 +23,10 @@ final class ArchiveEngine {
     private var hoverGain: [Cell: Float] = [:]
     static let lightBackground = SIMD3<Float>(231, 228, 223) / 255
     // Fog offsets from the camera-to-aim distance (browsing / detail); env vars for tuning renders.
-    static let fogNearOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_NEAR"] ?? "") ?? 5
-    static let fogFarOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_FAR"] ?? "") ?? 25
+    static let fogNearOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_NEAR"] ?? "") ?? 3
+    static let fogFarOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_FAR"] ?? "") ?? 18
     static let detailFogNearOffset = Float(ProcessInfo.processInfo.environment["RL_DFOG_NEAR"] ?? "") ?? -1
-    static let detailFogFarOffset = Float(ProcessInfo.processInfo.environment["RL_DFOG_FAR"] ?? "") ?? 12
+    static let detailFogFarOffset = Float(ProcessInfo.processInfo.environment["RL_DFOG_FAR"] ?? "") ?? 10
     static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
     static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
 

@@ -95,10 +95,10 @@ final class MetalRenderer {
     static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 1.05
     static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 0.4
     static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 0.6
-    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.4
-    static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.6
-    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.65
-    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.65
+    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.8
+    static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.3
+    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.6
+    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.5
     /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
     private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
     private func linearBackground(_ srgb: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {
@@ -462,7 +462,7 @@ final class MetalRenderer {
         var u = FrameUniforms()
         u.view = frame.view; u.proj = frame.proj
         u.viewProj = frame.proj * frame.view
-        let lightEye = SIMD3<Float>(-6, 14, -5)
+        let lightEye = Look.vector("RL_KEY_POS", SIMD3<Float>(-8, 10, -10))
         let lightView = Matrix.lookAt(eye: lightEye, target: .zero, up: SIMD3(0, 1, 0))
         u.lightViewProj = Matrix.orthographic(left: -16, right: 16, bottom: -15, top: 15, near: 0.1, far: 45) * lightView
         u.camPos = SIMD4(frame.cameraPosition, 1)
@@ -474,11 +474,11 @@ final class MetalRenderer {
         u.screen = SIMD4(Float(width), Float(height), quality.shadows > 0 ? 1 : 0, frame.time)
         u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
-        u.keyColor = SIMD4(srgbLinear(0xfff7ed) * Self.keyScale * lights, 1)
+        u.keyColor = SIMD4(srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0)) * Self.keyScale * lights, 1)
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
         u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, 1)
-        u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * Self.hemiScale * lights, 1)
-        u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * Self.hemiScale * lights, 1)
+        u.hemiSky = SIMD4(srgbLinear(Look.hex("RL_HEMI_SKY", 0xfff4e6)) * Self.hemiScale * lights, 1)
+        u.hemiGround = SIMD4(srgbLinear(Look.hex("RL_HEMI_GROUND", 0x9c7d5c)) * Self.hemiScale * lights, 1)
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }

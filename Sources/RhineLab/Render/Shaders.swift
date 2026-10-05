@@ -31,7 +31,8 @@ struct SurfaceMat {
     float4 p1;          // thickness, attenuationDistance, ior, kind
     float4 atten;       // attenuation colour
     float4 dark;        // albedo under the dark theme
-    float4 p2;          // clearcoat, clearcoat roughness
+    float4 p2;          // clearcoat, clearcoat roughness, array thickness, array attenuation distance
+    float4 attenArray;  // attenuation colour inside the array (w = 1 when set)
 };
 
 struct VIn {
@@ -230,6 +231,12 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float transmission = mix(m.p0.z, m.p0.w, q);
     float thickness = m.p1.x;
     float attDist = m.p1.y;
+    float3 attenColor = m.atten.rgb;
+    if (frost && m.attenArray.w > 0.5) {
+        thickness = mix(m.p2.z, thickness, q);
+        attDist = mix(m.p2.w, attDist, q);
+        attenColor = mix(m.attenArray.rgb, attenColor, q);
+    }
     if (frost) {
         rough = mix(mix(0.28, 0.42, q), 0.025, clearing);
         transmission = mix(transmission, 0.985, clearing);
@@ -267,7 +274,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float3 transmitted = sceneT.sample(tri, uv, level(lod)).rgb;
     float3 atten = float3(1.0);
     if (attDist < 1000.0) {
-        float3 coeff = -log(max(m.atten.rgb, 0.001)) / attDist;
+        float3 coeff = -log(max(attenColor, 0.001)) / attDist;
         atten = exp(-coeff * length(rv * thickness));
     }
     float NoV = saturate(dot(N, V)) + 1e-4;

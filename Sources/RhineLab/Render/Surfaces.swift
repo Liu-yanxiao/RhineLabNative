@@ -1,3 +1,4 @@
+import Foundation
 import simd
 import Metal
 
@@ -9,7 +10,8 @@ struct SurfaceMat {
     var p1 = SIMD4<Float>(0.1, 1e9, 1.46, 0)     // thickness, attenuation distance, ior, kind
     var atten = SIMD4<Float>(1, 1, 1, 1)
     var dark = SIMD4<Float>(0.5, 0.5, 0.5, 0)    // albedo under the dark theme
-    var p2 = SIMD4<Float>(0, 0, 0, 0)            // clearcoat (array look), clearcoat roughness
+    var p2 = SIMD4<Float>(0, 0, 0, 0)            // clearcoat (array look), clearcoat roughness, array thickness, array attenuation distance
+    var attenArray = SIMD4<Float>(1, 1, 1, 0)    // attenuation colour inside the array (w = 1 when set)
 }
 
 enum SurfaceKind: Float { case opaque = 0, frost = 1, internalPart = 2, floor = 3, ivory = 4 }
@@ -20,6 +22,21 @@ func srgbLinear(_ hex: UInt32) -> SIMD3<Float> {
         return s <= 0.04045 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4)
     }
     return SIMD3(c(hex >> 16), c(hex >> 8), c(hex))
+}
+
+/// Tuning knobs read from the environment (`RL_*`) so looks can be swept without rebuilding.
+enum Look {
+    static func number(_ key: String, _ fallback: Float) -> Float {
+        Float(ProcessInfo.processInfo.environment[key] ?? "") ?? fallback
+    }
+    static func hex(_ key: String, _ fallback: UInt32) -> UInt32 {
+        guard let s = ProcessInfo.processInfo.environment[key], let v = UInt32(s.replacingOccurrences(of: "#", with: ""), radix: 16) else { return fallback }
+        return v
+    }
+    static func vector(_ key: String, _ fallback: SIMD3<Float>) -> SIMD3<Float> {
+        let parts = (ProcessInfo.processInfo.environment[key] ?? "").split(separator: ",").compactMap { Float($0) }
+        return parts.count == 3 ? SIMD3(parts[0], parts[1], parts[2]) : fallback
+    }
 }
 
 enum Surfaces {
@@ -54,8 +71,10 @@ enum Surfaces {
             // Web `arrayMat`: transmission 0.78 with a light clearcoat; the extracted cover clears to 0.9.
             m.p0.z = 0.78; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
-            m.p2 = SIMD4(0.3, 0.25, 0, 0)
+            // Inside the array the body is thicker and tinted (video look): longer oblique paths pick up the warm tone.
+            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 1.0))
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xc8a478)), 1)
             kind = .frost
         case "Ivory_Edges":
             set(low: srgbLinear(0xfff5e9), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
