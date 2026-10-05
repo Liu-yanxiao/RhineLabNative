@@ -90,8 +90,11 @@ final class MetalRenderer {
     private var shadowMap: MTLTexture!
 
     static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 1.2
-    static let aoRadius: Float = 2.0
-    static let aoStrength: Float = 3.0
+    static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 2.0
+    static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 3.0
+    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.4
+    static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.6
+    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.65
     static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.48
     /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
     private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
@@ -464,11 +467,11 @@ final class MetalRenderer {
         u.screen = SIMD4(Float(width), Float(height), quality.shadows > 0 ? 1 : 0, frame.time)
         u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
-        u.keyColor = SIMD4(srgbLinear(0xfff7ed) * 1.4 * lights, 1)
+        u.keyColor = SIMD4(srgbLinear(0xfff7ed) * Self.keyScale * lights, 1)
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
-        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * 0.6 * lights, 1)
-        u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * 0.65 * lights, 1)
-        u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * 0.65 * lights, 1)
+        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, 1)
+        u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * Self.hemiScale * lights, 1)
+        u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * Self.hemiScale * lights, 1)
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }

@@ -21,6 +21,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     var stillScale: CGFloat = 1.5
     var motionScale: CGFloat = CGFloat(Double(ProcessInfo.processInfo.environment["RL_MOTION_SCALE"] ?? "") ?? 1.25)
     private var pixelBudget = RenderQuality.pixelBudget
+    private var ratioCap: CGFloat = 2
     private var settleFrames = 0
 
     /// Pixel size of the last drawable (main thread), for the settings summary.
@@ -28,9 +29,11 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
 
     /// Resolution and renderer settings from the quality preferences.
     func applyQuality(_ q: RenderQuality, superPerformance: Bool) {
-        let scale = CGFloat(q.pixelRatio) * CGFloat(q.scale) / 100
+        // Pixel ratio is capped by the screen; the percentage then supersamples beyond it.
+        let scale = min(CGFloat(q.pixelRatio), backing) * CGFloat(q.scale) / 100
         stillScale = scale
-        motionScale = max(0.5, scale * 0.75)
+        motionScale = max(0.5, min(scale, backing) * 0.75)
+        ratioCap = CGFloat(q.pixelRatio)
         pixelBudget = superPerformance ? RenderQuality.superPixelBudget : RenderQuality.pixelBudget
         renderer.renderQuality = q
         updateDrawableSize()
@@ -121,18 +124,21 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     // View geometry is copied here on the main thread so the render thread never touches AppKit.
     private var points = CGSize.zero
     private var backing: CGFloat = 2
+    private var lastBacking: CGFloat = 2
 
     private func updateDrawableSize() {
         guard bounds.width > 0, bounds.height > 0 else { return }
         points = bounds.size
         backing = window?.backingScaleFactor ?? 2
+        stillScale = min(ratioCap, backing) * stillScale / max(0.01, min(ratioCap, lastBacking))
+        lastBacking = backing
         applyScale(animating ? motionScale : stillScale)
         engine.wake()
         if viewer.isOpen { viewer.wake() }
     }
 
     private func applyScale(_ requested: CGFloat) {
-        var scale = min(requested, backing)
+        var scale = min(requested, max(backing, 1) * 2)
         let pixels = points.width * points.height * scale * scale
         if pixels > CGFloat(pixelBudget) { scale *= (CGFloat(pixelBudget) / pixels).squareRoot() }
         let size = CGSize(width: (points.width * scale).rounded(), height: (points.height * scale).rounded())

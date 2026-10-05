@@ -40,6 +40,14 @@ jobs:
           for mode in archive detail viewer-exploded settings; do
             $APP --shot shots/ui-$mode-dark.png --ui $mode --dark --size 1920x1080 || echo "ui $mode dark failed"
           done
+          # Look sweep: fog / AO / key light variants for side-by-side comparison with the web version.
+          sweep() { name=$1; shift; env "$@" $APP --shot shots/sweep-$name-archive.png --size 1920x1080; env "$@" $APP --shot shots/sweep-$name-detail.png --detail --size 1920x1080; }
+          sweep base RL_FOG_NEAR=2
+          sweep fog5 RL_FOG_NEAR=5 RL_FOG_FAR=25
+          sweep fog5ao RL_FOG_NEAR=5 RL_FOG_FAR=25 RL_AO=4.5
+          sweep fog5key RL_FOG_NEAR=5 RL_FOG_FAR=25 RL_KEY=1.9 RL_HEMI=0.5
+          sweep fog8all RL_FOG_NEAR=8 RL_FOG_FAR=30 RL_AO=4.5 RL_KEY=1.9 RL_HEMI=0.5 RL_DFOG_NEAR=2 RL_DFOG_FAR=18
+          sweep exp11 RL_FOG_NEAR=5 RL_FOG_FAR=25 RL_AO=4.5 RL_KEY=1.9 RL_HEMI=0.5 RL_EXPOSURE=1.1
           ls -la shots
       - uses: actions/upload-artifact@v4
         if: always()

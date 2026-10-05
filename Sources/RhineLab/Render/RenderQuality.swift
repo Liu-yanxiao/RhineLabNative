@@ -2,10 +2,10 @@ import Foundation
 
 /// Rendering controls, independent of lighting, materials and animation (web `render-quality.ts`).
 struct RenderQuality: Equatable, Codable {
-    var scale = 100                 // percent of the window's points
-    var pixelRatio: Float = 1.5     // cap on the backing scale
+    var scale = 100                 // percent of the window's points; above 100 supersamples
+    var pixelRatio: Float = 2       // cap on the backing scale
     var antialias = true            // 4× MSAA
-    var shadows = 2048              // shadow map size, 0 = off
+    var shadows = 4096              // shadow map size, 0 = off
     var aoSamples = 32              // 0 = off
     var aoResolution: Float = 1
     var depthOfField = 100          // percent of the original lens

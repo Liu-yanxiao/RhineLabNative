@@ -22,6 +22,11 @@ final class ArchiveEngine {
     private var hoverCell: Cell?
     private var hoverGain: [Cell: Float] = [:]
     static let lightBackground = SIMD3<Float>(231, 228, 223) / 255
+    // Fog offsets from the camera-to-aim distance (browsing / detail); env vars for tuning renders.
+    static let fogNearOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_NEAR"] ?? "") ?? 2
+    static let fogFarOffset = Float(ProcessInfo.processInfo.environment["RL_FOG_FAR"] ?? "") ?? 18
+    static let detailFogNearOffset = Float(ProcessInfo.processInfo.environment["RL_DFOG_NEAR"] ?? "") ?? -1
+    static let detailFogFarOffset = Float(ProcessInfo.processInfo.environment["RL_DFOG_FAR"] ?? "") ?? 12
     static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
     static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
 
@@ -426,8 +431,8 @@ final class ArchiveEngine {
         fovY = 2 * atan(span / (2 * distance))
         // The dark mist starts closer and ends sooner while browsing (web: +1 / +16 against +5 / +25).
         let th = theme.background(now)
-        fogNear = renderedDistance + lerp(lerp(2, 1, th), -1, d)
-        fogFar = renderedDistance + lerp(lerp(18, 16, th), 12, d)
+        fogNear = renderedDistance + lerp(lerp(Self.fogNearOffset, 1, th), Self.detailFogNearOffset, d)
+        fogFar = renderedDistance + lerp(lerp(Self.fogFarOffset, 16, th), Self.detailFogFarOffset, d)
         nearPlane = max(5, renderedDistance - 50)
         farPlane = renderedDistance + 60
         focusDistance = simd_distance(camPos, modelPos + v3(0, 2, 0))
