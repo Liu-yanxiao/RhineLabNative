@@ -50,8 +50,8 @@ struct Stage: View {
         ZStack {
             Group {
                 if model.mode == .boot { BootView().transition(.opacity) }
-                BrandHeader().place(left: 59, top: 114)
                 if model.mode != .boot {
+                    BrandHeader().place(left: 59, top: 114)
                     SystemNav().place(right: 59, top: 124).transition(.opacity)
                     PoweredBy().transition(.opacity)
                     SystemFooter().transition(.opacity)

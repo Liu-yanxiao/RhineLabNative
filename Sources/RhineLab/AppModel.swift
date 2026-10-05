@@ -22,6 +22,10 @@ final class AppModel: ObservableObject {
         didSet { if mode == .detail, oldValue != tab { audio.play(.uiTick) } }
     }
     @Published var bootID = 0
+    /// Wall-clock origin of the opening; app time = BootMotion.startTime + elapsed.
+    private(set) var bootStart = Date()
+    private var bootTimer: Timer?
+    private var lastBootTime: Double?
     /// Window size in points (used to map 3D overlay points into the 1920 × 1080 stage).
     var windowSize = CGSize(width: 1920, height: 1080)
     @Published var saved: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "rhine-saved") ?? [])
@@ -68,6 +72,7 @@ final class AppModel: ObservableObject {
         applyTheme(immediate: true)
         applyQuality()
         if !Self.headless { audio.configure(audioPrefs) }
+        startBootClock()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             return MainActor.assumeIsolated { self.handle(event) ? nil : event }
@@ -122,10 +127,37 @@ final class AppModel: ObservableObject {
         if !Self.headless { audio.configure(audioPrefs) }
     }
 
+    // MARK: Opening clock
+
+    func bootTime(at date: Date) -> Double { BootMotion.startTime + date.timeIntervalSince(bootStart) }
+
+    /// Headless screenshots position the opening at a given app time.
+    func setBootTime(_ t: Double) { bootStart = Date().addingTimeInterval(BootMotion.startTime - t) }
+
+    private func startBootClock() {
+        bootStart = Date()
+        lastBootTime = nil
+        bootTimer?.invalidate()
+        guard !Self.headless else { return }
+        bootTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 50, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickBoot() }
+        }
+    }
+
+    private func tickBoot() {
+        guard mode == .boot else { bootTimer?.invalidate(); bootTimer = nil; return }
+        let t = bootTime(at: Date())
+        audio.updateBoot(appTime: t, previous: lastBootTime)
+        if let previous = lastBootTime, BootMotion.hasTyping(between: previous + 5, and: t + 5) { audio.play(.key) }
+        lastBootTime = t
+        if t >= BootMotion.endTime { finishBoot() }
+    }
+
     // MARK: Flow
 
     func finishBoot() {
         guard mode == .boot else { return }
+        bootTimer?.invalidate(); bootTimer = nil
         mode = .archive
         engine.targetReveal = 1
         engine.select(selected, time: now)
@@ -333,5 +365,6 @@ extension AppModel {
         bootID += 1
         audio.restartBoot()
         audio.setScene(.boot)
+        startBootClock()
     }
 }

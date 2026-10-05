@@ -34,8 +34,9 @@ enum ShotMode {
 
         Theme.registerFonts()
         if let mode = value("--ui") {
+            let bootTime = Double(value("--time") ?? "") ?? 8
             MainActor.assumeIsolated {
-                shotWithInterface(path: path, mode: mode, index: index, dark: dark, width: w, height: h)
+                shotWithInterface(path: path, mode: mode, index: index, dark: dark, width: w, height: h, bootTime: bootTime)
             }
             return
         }
@@ -104,11 +105,12 @@ enum ShotMode {
 
     /// Scene plus the SwiftUI stage, drawn with ImageRenderer and composited in software.
     @MainActor
-    private static func shotWithInterface(path: String, mode: String, index: Int, dark: Bool, width w: Int, height h: Int) {
+    private static func shotWithInterface(path: String, mode: String, index: Int, dark: Bool, width w: Int, height h: Int, bootTime: Double) {
         AppModel.headless = true
         let model = AppModel()
         model.dark = dark
         model.engine.idleDrift = false
+        if mode == "boot" { model.setBootTime(bootTime) }
         var t = CACurrentMediaTime()
         func advance(_ seconds: Double) {
             for _ in 0..<Int(seconds * 60) { t += 1.0 / 60; model.engine.tick(time: t, dt: 1.0 / 60) }

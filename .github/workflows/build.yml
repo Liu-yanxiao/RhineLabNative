@@ -31,7 +31,10 @@ jobs:
           APP=build/RhineLab.app/Contents/MacOS/RhineLab
           $APP --shot shots/scene-archive.png --size 1920x1080
           $APP --shot shots/scene-viewer-exploded.png --viewer --exploded --size 1920x1080
-          for mode in boot archive detail viewer viewer-exploded search saved settings; do
+          for t in 2.3 4.6 7.7 15.9 18.5; do
+            $APP --shot shots/ui-boot-$t.png --ui boot --time $t --size 1920x1080 || echo "boot $t failed"
+          done
+          for mode in archive detail viewer viewer-exploded search saved settings; do
             $APP --shot shots/ui-$mode.png --ui $mode --size 1920x1080 || echo "ui $mode failed"
           done
           for mode in archive detail viewer-exploded settings; do

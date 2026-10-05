@@ -13,13 +13,25 @@ extension View {
 }
 
 struct BrandHeader: View {
-
     @Environment(\.palette) private var pal
     private let positions: [CGFloat] = [2, 28, 55, 81, 103, 129, 154, 166]
+    /// During the opening each line slides in from the right with its own opacity.
+    var boot: [(x: Double, opacity: Double)]? = nil
+
+    private func line(_ i: Int) -> (x: CGFloat, opacity: Double) {
+        guard let boot, boot.indices.contains(i) else { return (0, 1) }
+        return (CGFloat(boot[i].x), boot[i].opacity)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("RHINE LAB").font(Theme.font(44, .bold)).tracking(2.5).frame(height: 48, alignment: .leading)
+            // The wordmark is the Novecento DemiBold drawing (50.75 pt, 1 pt tracking) in a 48 pt line.
+            LetteringText(keys: ["brand"], text: "RHINE LAB", size: 50.75, tracking: 1, color: pal.ink)
+                .offset(y: 1.425)
+                .frame(width: 270, height: 48, alignment: .topLeading)
+                .offset(x: line(0).x).opacity(line(0).opacity)
             Text("SYNTHESIZE INFORMATION").font(Theme.font(19, .semibold)).tracking(0.65).frame(height: 23, alignment: .leading)
+                .offset(x: line(1).x).opacity(line(1).opacity)
             HStack(spacing: 0) {
                 ZStack(alignment: .topLeading) {
                     ForEach(Array("ANALYSIS".enumerated()), id: \.offset) { i, ch in
@@ -29,6 +41,7 @@ struct BrandHeader: View {
                 Spacer(minLength: 0)
                 Text("OS").font(Theme.font(35, .bold)).tracking(3)
             }.frame(width: 270, height: 40)
+            .offset(x: line(2).x).opacity(line(2).opacity)
         }
         .foregroundStyle(pal.ink)
         .frame(width: 270, alignment: .leading)
