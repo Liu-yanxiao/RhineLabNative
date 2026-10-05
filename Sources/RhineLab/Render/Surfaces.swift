@@ -67,17 +67,18 @@ enum Surfaces {
         var kind: SurfaceKind = Surfaces.arraySurfaces.contains(mesh.materialName) ? .opaque : .internalPart
         switch mesh.materialName {
         case "Frosted_Polymer":
-            set(low: srgbLinear(0xfff7ed), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
+            // Video look: inside the array the shell reads as a warm tan body; the extracted cover stays near-white.
+            set(low: srgbLinear(Look.hex("RL_FROST", 0xc8aa88)), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
             // Web `arrayMat`: transmission 0.78 with a light clearcoat; the extracted cover clears to 0.9.
             m.p0.z = 0.78; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
             // Inside the array the body is thicker and tinted (video look): longer oblique paths pick up the warm tone.
-            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 1.0))
+            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.2))
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
             m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xc8a478)), 1)
             kind = .frost
         case "Ivory_Edges":
-            set(low: srgbLinear(0xfff5e9), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            set(low: srgbLinear(Look.hex("RL_IVORY", 0xdcc0a0)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
             m.p0.z = 0; m.p0.w = 0.65
             m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
             kind = .ivory
