@@ -68,6 +68,7 @@ enum ShotMode {
             for _ in 0..<(4 * 60) { vt += 1.0 / 60; viewer.tick(time: vt, dt: 1.0 / 60) }
             frame = viewer.makeFrame(aspect: Float(w) / Float(h))
         }
+        if let dof = Float(ProcessInfo.processInfo.environment["RL_DOF"] ?? "") { frame.depthOfField *= dof }
         guard let image = capture(renderer, frame, width: w, height: h) else { return }
         write(image, to: path)
     }
