@@ -110,7 +110,6 @@ enum ShotMode {
         let model = AppModel()
         model.dark = dark
         model.engine.idleDrift = false
-        if mode == "boot" { model.setBootTime(bootTime) }
         var t = CACurrentMediaTime()
         func advance(_ seconds: Double) {
             for _ in 0..<Int(seconds * 60) { t += 1.0 / 60; model.engine.tick(time: t, dt: 1.0 / 60) }
@@ -142,6 +141,8 @@ enum ShotMode {
         let frame = model.viewerOpen ? model.viewer.makeFrame(aspect: aspect) : model.engine.makeFrame(aspect: aspect)
         guard let scene = capture(model.sceneView.renderer, frame, width: w, height: h) else { return }
 
+        // Set the opening clock only now: the scene capture above took about a second.
+        if mode == "boot" { model.setBootTime(bootTime) }
         let stage = Stage()
             .environmentObject(model)
             .environment(\.palette, dark ? .dark : .light)
