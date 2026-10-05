@@ -81,7 +81,7 @@ private struct SkipButton: View {
     @State private var hovering = false
 
     var body: some View {
-        Button { model.finishBoot() } label: {
+        Button { model.skipBoot() } label: {
             HStack(spacing: 28) {
                 Text("ENTER SYSTEM").font(Theme.font(14)).tracking(1.1)
                 Text("↗").font(Theme.font(23))

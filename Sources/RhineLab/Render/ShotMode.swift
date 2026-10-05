@@ -105,6 +105,7 @@ enum ShotMode {
     /// Scene plus the SwiftUI stage, drawn with ImageRenderer and composited in software.
     @MainActor
     private static func shotWithInterface(path: String, mode: String, index: Int, dark: Bool, width w: Int, height h: Int) {
+        AppModel.headless = true
         let model = AppModel()
         model.dark = dark
         model.engine.idleDrift = false

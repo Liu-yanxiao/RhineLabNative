@@ -10,21 +10,27 @@ final class AppModel: ObservableObject {
     let engine: ArchiveEngine
     let viewer: ViewerEngine
     let sceneView: ArchiveView
+    let audio = TerminalAudio()
+    /// Set by headless screenshot rendering: no audio device, no sound.
+    nonisolated(unsafe) static var headless = false
 
     @Published var mode: Mode = .boot
     @Published var selected = 0
     @Published var hover: Int?
     @Published var modal: Modal?
-    @Published var tab = 0
+    @Published var tab = 0 {
+        didSet { if mode == .detail, oldValue != tab { audio.play(.uiTick) } }
+    }
     @Published var bootID = 0
     /// Window size in points (used to map 3D overlay points into the 1920 × 1080 stage).
     var windowSize = CGSize(width: 1920, height: 1080)
     @Published var saved: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "rhine-saved") ?? [])
     @Published var toast: String?
     @Published var accessLog: [(id: String, time: String)] = []
-    @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs() } }
-    @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs() } }
-    @Published var dark = UserDefaults.standard.bool(forKey: "rhine-dark") { didSet { applyTheme() } }
+    @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs(); audio.play(.confirm) } }
+    @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs(); audio.play(.confirm) } }
+    @Published var dark = UserDefaults.standard.bool(forKey: "rhine-dark") { didSet { applyTheme(); audio.play(.tick) } }
+    @Published var audioPrefs = AppModel.loadAudioPrefs() { didSet { saveAudio() } }
     @Published var columnMemory: [Int]
     // 360° viewer
     @Published var viewerOpen = false
@@ -56,6 +62,7 @@ final class AppModel: ObservableObject {
         }
         applyPrefs()
         applyTheme(immediate: true)
+        if !Self.headless { audio.configure(audioPrefs) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             return MainActor.assumeIsolated { self.handle(event) ? nil : event }
@@ -77,6 +84,25 @@ final class AppModel: ObservableObject {
         viewer.theme = dark ? 1 : 0
     }
 
+    private static func loadAudioPrefs() -> AudioPreferences {
+        let d = UserDefaults.standard
+        var p = AudioPreferences()
+        if d.object(forKey: "rhine-sound") != nil { p.sound = d.bool(forKey: "rhine-sound") }
+        if d.object(forKey: "rhine-music") != nil { p.music = d.bool(forKey: "rhine-music") }
+        if d.object(forKey: "rhine-sound-volume") != nil { p.soundVolume = d.float(forKey: "rhine-sound-volume") }
+        if d.object(forKey: "rhine-music-volume") != nil { p.musicVolume = d.float(forKey: "rhine-music-volume") }
+        return p
+    }
+
+    private func saveAudio() {
+        let d = UserDefaults.standard
+        d.set(audioPrefs.sound, forKey: "rhine-sound")
+        d.set(audioPrefs.music, forKey: "rhine-music")
+        d.set(audioPrefs.soundVolume, forKey: "rhine-sound-volume")
+        d.set(audioPrefs.musicVolume, forKey: "rhine-music-volume")
+        if !Self.headless { audio.configure(audioPrefs) }
+    }
+
     // MARK: Flow
 
     func finishBoot() {
@@ -85,12 +111,25 @@ final class AppModel: ObservableObject {
         engine.targetReveal = 1
         engine.select(selected, time: now)
         engine.wake()
+        audio.setScene(.archive)
+    }
+
+    /// ENTER SYSTEM: the opening is cut short by the user.
+    func skipBoot() {
+        guard mode == .boot else { return }
+        audio.play(.uiTick)
+        finishBoot()
     }
 
     func select(_ index: Int, navigation: ArchiveNavigation? = nil) {
         guard mode != .boot else { return }
         let index = (index + records.count) % records.count
-        if mode == .detail { mode = .archive; engine.setDetail(false, time: now) }
+        if mode == .detail { mode = .archive; engine.setDetail(false, time: now); audio.setScene(.archive) }
+        if case .lane(let direction) = navigation {
+            audio.play(.column, pan: Float(direction) * 0.45)
+        } else if index != selected || navigation != nil {
+            audio.play(.tick)
+        }
         selected = index
         columnMemory[lane] = index
         tab = 0
@@ -113,15 +152,29 @@ final class AppModel: ObservableObject {
         mode = .detail
         accessLog.insert((record.id, Date.now.formatted(.dateTime.hour().minute().second())), at: 0)
         engine.setDetail(true, time: now)
+        audio.setScene(.detail)
+        audio.play(.open)
     }
 
     func back() {
         guard mode == .detail else { return }
         mode = .archive
         engine.setDetail(false, time: now)
+        audio.setScene(.archive)
+        audio.play(.back)
     }
 
-    func present(_ m: Modal) { if mode != .boot && !viewerOpen { modal = m } }
+    func present(_ m: Modal) {
+        guard mode != .boot, !viewerOpen else { return }
+        modal = m
+        audio.play(.pageOpen)
+    }
+
+    func dismissModal() {
+        guard modal != nil else { return }
+        modal = nil
+        audio.play(.pageClose)
+    }
 
     // MARK: 360° viewer
 
@@ -132,6 +185,8 @@ final class AppModel: ObservableObject {
         viewerStatus = "已组装"
         viewer.open(labelIndex: selected)
         viewerOpen = true
+        audio.setScene(.viewer)
+        audio.play(.pageOpen)
     }
 
     func closeViewer() {
@@ -139,26 +194,38 @@ final class AppModel: ObservableObject {
         viewerOpen = false
         viewer.close()
         engine.wake()
+        audio.setScene(mode == .detail ? .detail : .archive)
+        audio.play(.pageClose)
     }
 
     func setViewerExploded(_ on: Bool) {
         guard viewerOpen, viewerExploded != on else { return }
         viewerExploded = on
         viewer.setExploded(on)
+        audio.play(on ? .explode : .assemble)
     }
 
     func setViewerClear(_ on: Bool) {
         guard viewerOpen, viewerClear != on else { return }
         viewerClear = on
         viewer.setClear(on)
+        audio.play(.uiTick)
     }
-    func dismissModal() { modal = nil }
+
+    func resetViewer() {
+        guard viewerOpen else { return }
+        viewer.reset(animated: true)
+        audio.play(.uiTick)
+    }
+
+    // MARK: Saved files and export
 
     func toggleSaved() {
         let id = record.id
         if saved.contains(id) { saved.remove(id); notify("已从收藏移除 \(id)") }
         else { saved.insert(id); notify("已收藏 \(id)") }
         UserDefaults.standard.set(Array(saved), forKey: "rhine-saved")
+        audio.play(.confirm)
     }
 
     func notify(_ message: String) {
@@ -202,7 +269,7 @@ final class AppModel: ObservableObject {
     private func handle(_ event: NSEvent) -> Bool {
         if event.modifierFlags.intersection([.command, .control, .option]) != [] { return false }
         if mode == .boot {
-            if event.keyCode == 36 || event.keyCode == 53 { finishBoot(); return true }
+            if event.keyCode == 36 || event.keyCode == 53 { skipBoot(); return true }
             return false
         }
         if modal != nil {
@@ -212,7 +279,7 @@ final class AppModel: ObservableObject {
         if viewerOpen {
             switch event.keyCode {
             case 53: closeViewer()                                  // esc
-            case 115: viewer.reset(animated: true)                  // home
+            case 115: resetViewer()                                 // home
             case 123: viewer.panStep(SIMD2(-1, 0))
             case 124: viewer.panStep(SIMD2(1, 0))
             case 126: viewer.panStep(SIMD2(0, 1))
@@ -245,5 +312,7 @@ extension AppModel {
         engine.targetReveal = 0
         mode = .boot
         bootID += 1
+        audio.restartBoot()
+        audio.setScene(.boot)
     }
 }

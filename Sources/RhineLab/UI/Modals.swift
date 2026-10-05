@@ -343,6 +343,12 @@ private struct SettingsPanel: View {
                 }
                 .padding(.vertical, 16)
                 .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
+                HStack(alignment: .top, spacing: 32) {
+                    AudioSetting(title: "INTERFACE SOUND", hint: "操作与启动音效", label: "音效音量",
+                                 isOn: $model.audioPrefs.sound, volume: $model.audioPrefs.soundVolume)
+                    AudioSetting(title: "BACKGROUND MUSIC", hint: "观测室 · 背景音乐", label: "音乐音量",
+                                 isOn: $model.audioPrefs.music, volume: $model.audioPrefs.musicVolume)
+                }
                 SettingRow(title: "REDUCED MOTION", hint: "镜头与档案运动直接到位，降低 GPU 占用", isOn: $model.reduced)
                 SettingRow(title: "IDLE DRIFT", hint: "停在档案阵列时保留缓慢起伏；关闭后画面静止时完全不渲染", isOn: $model.idleDrift)
             }
@@ -377,6 +383,42 @@ private struct SettingsPanel: View {
             ModalFooter(left: "ANALYSIS OS / 1.0 · 使用 MiSans 字体（小米）", right: AnyView(Text("POWERED BY RHINE LAB")))
                 .padding(.top, 28)
         }
+    }
+}
+
+/// Toggle plus volume slider for one of the two audio buses (web `.audio-setting`).
+private struct AudioSetting: View {
+    @Environment(\.palette) private var pal
+    let title: String
+    let hint: String
+    let label: String
+    @Binding var isOn: Bool
+    @Binding var volume: Float
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { isOn.toggle() } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(title).font(Theme.font(12)).tracking(0.8)
+                        Text(hint).font(Theme.font(12)).foregroundStyle(pal.muted)
+                    }
+                    Spacer()
+                    SquareSwitch(isOn: isOn)
+                }
+                .padding(.top, 20).padding(.bottom, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            HStack(spacing: 12) {
+                Text(label).font(Theme.font(10)).foregroundStyle(pal.muted).fixedSize()
+                Slider(value: $volume, in: 0...1).tint(pal.switchOn).frame(height: 22)
+                Text("\(Int((volume * 100).rounded()))%").font(Theme.font(10)).frame(minWidth: 36, alignment: .trailing)
+            }
+            .padding(.top, 8).padding(.bottom, 18)
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
+        }
+        .foregroundStyle(pal.ink)
     }
 }
 

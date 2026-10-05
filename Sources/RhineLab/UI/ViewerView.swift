@@ -101,7 +101,7 @@ struct ViewerView: View {
             .background(pal.panel)
             .overlay(Rectangle().stroke(pal.line, lineWidth: 1))
             Spacer(minLength: 0)
-            Button { model.viewer.reset(animated: true) } label: {
+            Button { model.resetViewer() } label: {
                 HStack(spacing: 18) { Text("复位视角"); Text("↗") }.font(Theme.font(14)).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
