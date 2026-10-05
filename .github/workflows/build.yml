@@ -41,17 +41,6 @@ jobs:
             $APP --shot shots/ui-$mode-dark.png --ui $mode --dark --size 1920x1080 || echo "ui $mode dark failed"
           done
           ls -la shots
-      - name: Look sweep
-        continue-on-error: true
-        run: |
-          APP=build/RhineLab.app/Contents/MacOS/RhineLab
-          sweep() { name=$1; shift; env "$@" $APP --shot shots/sweep-$name-archive.png --ui archive --size 1920x1080 || true; env "$@" $APP --shot shots/sweep-$name-detail.png --ui detail --size 1920x1080 || true; }
-          sweep env50 RL_ENV=0.5
-          sweep env65 RL_ENV=0.65
-          sweep env80 RL_ENV=0.8
-          sweep env65k17 RL_ENV=0.65 RL_KEY=1.7
-          sweep env65x115 RL_ENV=0.65 RL_EXPOSURE=1.15
-          sweep env65noao RL_ENV=0.65 RL_AO=0
       - uses: actions/upload-artifact@v4
         if: always()
         with:

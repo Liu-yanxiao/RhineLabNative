@@ -98,7 +98,7 @@ final class MetalRenderer {
     static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.4
     static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.6
     static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.65
-    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.3
+    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.65
     /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
     private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
     private func linearBackground(_ srgb: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {
