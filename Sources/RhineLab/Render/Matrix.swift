@@ -43,6 +43,13 @@ struct CardDraw {
     var labelIndex: Int
 }
 
+/// The exploded assembly shown by the 360° viewer instead of the archive.
+struct AssemblyDraw {
+    var spread: Float       // 0 = assembled, 1 = parts spread along the thickness axis
+    var clarity: Float      // 0 = frosted cover, 1 = clear
+    var labelIndex: Int
+}
+
 struct RenderFrame {
     var view = matrix_identity_float4x4
     var proj = matrix_identity_float4x4
@@ -52,6 +59,10 @@ struct RenderFrame {
     /// xyz = position, w = tilt about X, one per visible array card.
     var arrayCards: [SIMD4<Float>] = []
     var cards: [CardDraw] = []
+    /// When set, the assembly is drawn alone (no floor, array or extracted cards).
+    var assembly: AssemblyDraw? = nil
+    /// Background and fog colour as displayed (sRGB 0...1); the renderer solves the linear value.
+    var background = SIMD3<Float>(231, 228, 223) / 255
     var focusDistance: Float = 100
     var depthOfField: Float = 0     // 0 = off, 1 = original lens
     var near: Float = 10

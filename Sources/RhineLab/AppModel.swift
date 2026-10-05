@@ -8,6 +8,7 @@ enum Modal { case search, saved, settings }
 @MainActor
 final class AppModel: ObservableObject {
     let engine: ArchiveEngine
+    let viewer: ViewerEngine
     let sceneView: ArchiveView
 
     @Published var mode: Mode = .boot
@@ -24,6 +25,11 @@ final class AppModel: ObservableObject {
     @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs() } }
     @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs() } }
     @Published var columnMemory: [Int]
+    // 360° viewer
+    @Published var viewerOpen = false
+    @Published var viewerExploded = false
+    @Published var viewerClear = true
+    @Published var viewerStatus = "已组装"
     private var toastTask: Task<Void, Never>?
     private var monitor: Any?
 
@@ -36,13 +42,17 @@ final class AppModel: ObservableObject {
     init() {
         guard let renderer = MetalRenderer() else { fatalError("Metal is not available") }
         engine = ArchiveEngine()
-        sceneView = ArchiveView(engine: engine, renderer: renderer)
+        viewer = ViewerEngine()
+        sceneView = ArchiveView(engine: engine, viewer: viewer, renderer: renderer)
         columnMemory = Archive.columns.indices.map { Archive.columnFiles($0).first ?? 0 }
         sceneView.canPick = { [weak self] in self?.mode == .archive && self?.modal == nil }
         sceneView.onHover = { [weak self] in
             if self?.hover != $0 { self?.hover = $0 }
         }
         sceneView.onSelect = { [weak self] index, cell in self?.select(index, navigation: .cell(cell)) }
+        viewer.onStatusChanged = { [weak self] status in
+            Task { @MainActor in self?.viewerStatus = status }
+        }
         applyPrefs()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -53,6 +63,7 @@ final class AppModel: ObservableObject {
     private func applyPrefs() {
         engine.reduced = reduced
         engine.idleDrift = idleDrift
+        viewer.reduced = reduced
         engine.wake()
         UserDefaults.standard.set(reduced, forKey: "rhine-reduced")
         UserDefaults.standard.set(idleDrift, forKey: "rhine-idle")
@@ -102,7 +113,37 @@ final class AppModel: ObservableObject {
         engine.setDetail(false, time: now)
     }
 
-    func present(_ m: Modal) { if mode != .boot { modal = m } }
+    func present(_ m: Modal) { if mode != .boot && !viewerOpen { modal = m } }
+
+    // MARK: 360° viewer
+
+    func openViewer() {
+        guard mode == .detail, !viewerOpen else { return }
+        viewerExploded = false
+        viewerClear = true
+        viewerStatus = "已组装"
+        viewer.open(labelIndex: selected)
+        viewerOpen = true
+    }
+
+    func closeViewer() {
+        guard viewerOpen else { return }
+        viewerOpen = false
+        viewer.close()
+        engine.wake()
+    }
+
+    func setViewerExploded(_ on: Bool) {
+        guard viewerOpen, viewerExploded != on else { return }
+        viewerExploded = on
+        viewer.setExploded(on)
+    }
+
+    func setViewerClear(_ on: Bool) {
+        guard viewerOpen, viewerClear != on else { return }
+        viewerClear = on
+        viewer.setClear(on)
+    }
     func dismissModal() { modal = nil }
 
     func toggleSaved() {
@@ -160,6 +201,20 @@ final class AppModel: ObservableObject {
             if event.keyCode == 53 { dismissModal(); return true }
             return false
         }
+        if viewerOpen {
+            switch event.keyCode {
+            case 53: closeViewer()                                  // esc
+            case 115: viewer.reset(animated: true)                  // home
+            case 123: viewer.panStep(SIMD2(-1, 0))
+            case 124: viewer.panStep(SIMD2(1, 0))
+            case 126: viewer.panStep(SIMD2(0, 1))
+            case 125: viewer.panStep(SIMD2(0, -1))
+            case 24, 69: viewer.dolly(factor: 1 / 1.12)             // = / keypad +
+            case 27, 78: viewer.dolly(factor: 1.12)                 // - / keypad -
+            default: break
+            }
+            return true
+        }
         switch (mode, event.keyCode) {
         case (_, 44) where event.characters == "/": present(.search); return true
         case (_, 123): stepColumn(-1); return true
@@ -177,6 +232,7 @@ extension AppModel {
     /// Replay the opening sequence.
     func replay() {
         modal = nil
+        closeViewer()
         if mode == .detail { engine.setDetail(false, time: CACurrentMediaTime()) }
         engine.targetReveal = 0
         mode = .boot

@@ -54,6 +54,7 @@ final class MetalRenderer {
     // Geometry
     private var arrayMeshes: [GPUMesh] = []
     private var cardMeshes: [GPUMesh] = []
+    private var assemblyMeshes: [(part: String, mesh: GPUMesh)] = []
     private var floorMesh: GPUMesh!
     private var labelMesh: GPUMesh!
     private var labelTextures: [Int: MTLTexture] = [:]
@@ -78,8 +79,16 @@ final class MetalRenderer {
     static let aoRadius: Float = 2.0
     static let aoStrength: Float = 3.0
     static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.48
-    /// Linear colour that comes out as the web version's background (231, 228, 223) after tone mapping.
-    private let backgroundColor: SIMD3<Float> = MetalRenderer.solveBackground(target: SIMD3(231, 228, 223) / 255)
+    /// Linear colours that come out as the requested sRGB background after tone mapping (one per colour).
+    private var backgroundCache: [UInt32: SIMD3<Float>] = [:]
+    private func linearBackground(_ srgb: SIMD3<Float>) -> SIMD3<Float> {
+        func byte(_ v: Float) -> UInt32 { UInt32(max(0, min(255, (v * 255).rounded()))) }
+        let key = byte(srgb.x) << 16 | byte(srgb.y) << 8 | byte(srgb.z)
+        if let hit = backgroundCache[key] { return hit }
+        let solved = Self.solveBackground(target: srgb)
+        backgroundCache[key] = solved
+        return solved
+    }
 
     // Per-pass GPU timing (benchmark only): shadow, capture, main, ao, composite.
     var passTimingEnabled = false
@@ -279,6 +288,10 @@ final class MetalRenderer {
         let meshes = try GLB.load(resource: "archive-cassette")
         arrayMeshes = meshes.filter { Surfaces.arraySurfaces.contains($0.materialName) }.map { GPUMesh(device: device, glb: $0) }
         cardMeshes = meshes.filter { !Surfaces.hidden.contains($0.materialName) }.map { GPUMesh(device: device, glb: $0) }
+        // The same card split into assembly parts for the 360° viewer.
+        assemblyMeshes = try GLB.load(resource: "archive-assembly")
+            .filter { !Surfaces.hidden.contains($0.materialName) }
+            .map { ($0.part ?? "cover", GPUMesh(device: device, glb: $0)) }
 
         let half: Float = 100, y: Float = -4.63
         floorMesh = GPUMesh(device: device,
@@ -403,7 +416,7 @@ final class MetalRenderer {
         u.camPos = SIMD4(frame.cameraPosition, 1)
         u.params = SIMD4(Self.exposure, frame.fogNear, frame.fogFar, Self.envScale)
         u.screen = SIMD4(Float(width), Float(height), 0, frame.time)
-        u.fogColor = SIMD4(backgroundColor, 1)
+        u.fogColor = SIMD4(linearBackground(frame.background), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
         u.keyColor = SIMD4(srgbLinear(0xfff7ed) * 1.4, 1)
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
@@ -453,18 +466,20 @@ final class MetalRenderer {
             e.setCullMode(.none)
             e.setFrontFacing(.counterClockwise)
             e.setVertexBytes(&u, length: MemoryLayout<FrameUniforms>.stride, index: 1)
-            if let m = arrayMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
-                e.setVertexBuffer(m.vertices, offset: 0, index: 0)
-                e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
-                e.drawIndexedPrimitives(type: .triangle, indexCount: m.indexCount, indexType: .uint32,
-                                        indexBuffer: m.indices, indexBufferOffset: 0, instanceCount: count)
-            }
-            if let m = cardMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
-                e.setVertexBuffer(m.vertices, offset: 0, index: 0)
-                for var inst in cardInstances {
-                    e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+            if frame.assembly == nil {
+                if let m = arrayMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
+                    e.setVertexBuffer(m.vertices, offset: 0, index: 0)
+                    e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
                     e.drawIndexedPrimitives(type: .triangle, indexCount: m.indexCount, indexType: .uint32,
-                                            indexBuffer: m.indices, indexBufferOffset: 0)
+                                            indexBuffer: m.indices, indexBufferOffset: 0, instanceCount: count)
+                }
+                if let m = cardMeshes.first(where: { $0.name == "Optical_Diffuser" }) {
+                    e.setVertexBuffer(m.vertices, offset: 0, index: 0)
+                    for var inst in cardInstances {
+                        e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                        e.drawIndexedPrimitives(type: .triangle, indexCount: m.indexCount, indexType: .uint32,
+                                                indexBuffer: m.indices, indexBufferOffset: 0)
+                    }
                 }
             }
             e.endEncoding()
@@ -481,6 +496,7 @@ final class MetalRenderer {
             e.setFragmentTexture(envIrr, index: 5)
         }
         func drawOpaque(_ e: MTLRenderCommandEncoder, capture: Bool = false) {
+            if let a = frame.assembly { drawAssembly(e, a, transmissive: false, capture: capture); return }
             var identity = InstanceData(posTilt: .zero, yawQR: .zero)
             e.setVertexBytes(&identity, length: MemoryLayout<InstanceData>.stride, index: 2)
             draw(floorMesh, on: e)
@@ -493,8 +509,9 @@ final class MetalRenderer {
                 for m in cardMeshes where m.kind != .frost && m.kind != .ivory { draw(m, on: e) }
             }
         }
-        let clear = MTLClearColor(red: Double(backgroundColor.x), green: Double(backgroundColor.y),
-                                  blue: Double(backgroundColor.z), alpha: 1)
+        let background = linearBackground(frame.background)
+        let clear = MTLClearColor(red: Double(background.x), green: Double(background.y),
+                                  blue: Double(background.z), alpha: 1)
 
         // 2. Opaque capture (MSAA, resolved into a mip chain): the glass blurs and refracts this.
         let cp0 = MTLRenderPassDescriptor()
@@ -536,22 +553,35 @@ final class MetalRenderer {
 
             e.setRenderPipelineState(pipeTrans)
             e.setFragmentTexture(captureColor, index: 0)
-            for m in arrayMeshes where m.kind == .frost {
-                e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
-                draw(m, on: e, instances: count)
-            }
-            for var inst in cardInstances {
-                e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
-                for m in cardMeshes where m.kind == .frost || m.kind == .ivory { draw(m, on: e) }
+            if let a = frame.assembly {
+                drawAssembly(e, a, transmissive: true)
+            } else {
+                for m in arrayMeshes where m.kind == .frost {
+                    e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
+                    draw(m, on: e, instances: count)
+                }
+                for var inst in cardInstances {
+                    e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                    for m in cardMeshes where m.kind == .frost || m.kind == .ivory { draw(m, on: e) }
+                }
             }
             // Printed labels
             e.setRenderPipelineState(pipeLabel)
             e.setDepthStencilState(depthNoWrite)
-            for (card, var inst) in zip(frame.cards, cardInstances) where card.quality > 0.001 {
-                guard let label = labelTexture(card.labelIndex) else { continue }
-                e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
-                e.setFragmentTexture(label, index: 2)
-                draw(labelMesh, on: e, material: false)
+            if let a = frame.assembly {
+                if let label = labelTexture(a.labelIndex) {
+                    var inst = assemblyInstance("cover", a)
+                    e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                    e.setFragmentTexture(label, index: 2)
+                    draw(labelMesh, on: e, material: false)
+                }
+            } else {
+                for (card, var inst) in zip(frame.cards, cardInstances) where card.quality > 0.001 {
+                    guard let label = labelTexture(card.labelIndex) else { continue }
+                    e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                    e.setFragmentTexture(label, index: 2)
+                    draw(labelMesh, on: e, material: false)
+                }
             }
             e.endEncoding()
         }
@@ -601,6 +631,21 @@ final class MetalRenderer {
             completion?()
         }
         cb.commit()
+    }
+
+    /// One assembly part, centred on the origin and spread along the card's thickness axis.
+    private func assemblyInstance(_ part: String, _ a: AssemblyDraw) -> InstanceData {
+        let offset = ViewerEngine.modelOffset + SIMD3<Float>(0, 0, ViewerEngine.depth(of: part) * a.spread)
+        return InstanceData(posTilt: SIMD4(offset, 0), yawQR: SIMD4(0, 1, a.clarity, 0))
+    }
+
+    private func drawAssembly(_ e: MTLRenderCommandEncoder, _ a: AssemblyDraw, transmissive: Bool, capture: Bool = false) {
+        for (part, m) in assemblyMeshes where (m.kind == .frost || m.kind == .ivory) == transmissive {
+            if capture && m.name == "Titanium_Fasteners" { continue }
+            var inst = assemblyInstance(part, a)
+            e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+            draw(m, on: e)
+        }
     }
 
     private func draw(_ mesh: GPUMesh, on e: MTLRenderCommandEncoder, instances: Int = 1, material: Bool = true) {

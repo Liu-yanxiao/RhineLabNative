@@ -7,6 +7,7 @@ import Metal
 /// so a busy main thread (SwiftUI layout, input) can never stall a frame.
 final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     let engine: ArchiveEngine
+    let viewer: ViewerEngine
     let renderer: MetalRenderer
     var onHover: ((Int?) -> Void)?
     var onSelect: ((Int, Cell) -> Void)?
@@ -32,10 +33,15 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     private var wasIdleRate = false
     private let stats = FrameStats()
     private var downPoint = CGPoint.zero
-    private var dragging = false
+    private enum Drag { case none, inspect, orbit, pan }
+    private var drag = Drag.none
 
-    init(engine: ArchiveEngine, renderer: MetalRenderer) {
+    /// Whichever simulation is on screen.
+    private var animating: Bool { viewer.isOpen ? viewer.isAnimating : engine.isAnimating }
+
+    init(engine: ArchiveEngine, viewer: ViewerEngine, renderer: MetalRenderer) {
         self.engine = engine
+        self.viewer = viewer
         self.renderer = renderer
         super.init(frame: .zero)
         wantsLayer = true
@@ -46,7 +52,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         metalLayer.maximumDrawableCount = 3
         metalLayer.isOpaque = true
         metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
-        engine.onActivityChanged = { [weak self] active in
+        let activity: (Bool) -> Void = { [weak self] active in
             guard let self else { return }
             if active {
                 self.lastTimestamp = 0
@@ -57,6 +63,8 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
                 self.settleFrames = 3
             }
         }
+        engine.onActivityChanged = activity
+        viewer.onActivityChanged = activity
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -101,8 +109,9 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         guard bounds.width > 0, bounds.height > 0 else { return }
         points = bounds.size
         backing = window?.backingScaleFactor ?? 2
-        applyScale(engine.isAnimating ? motionScale : stillScale)
+        applyScale(animating ? motionScale : stillScale)
         engine.wake()
+        if viewer.isOpen { viewer.wake() }
     }
 
     private func applyScale(_ requested: CGFloat) {
@@ -118,9 +127,11 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         let dt = lastTimestamp == 0 ? 1.0 / 60 : now - lastTimestamp
         lastTimestamp = now
         let cpuStart = CACurrentMediaTime()
-        engine.tick(time: now, dt: dt)
+        let viewerOpen = viewer.isOpen
+        if viewerOpen { viewer.tick(time: now, dt: dt) } else { engine.tick(time: now, dt: dt) }
         let tickEnd = CACurrentMediaTime()
-        let idle = engine.idleOnly
+        let animating = self.animating
+        let idle = !viewerOpen && engine.idleOnly
         if idle != wasIdleRate {
             wasIdleRate = idle
             link.preferredFrameRateRange = idle
@@ -128,19 +139,19 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
                 : (level >= 3 ? CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60) : CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120))
         }
         // Choose the resolution for the *next* frame: modest while moving, full once still.
-        let moving = engine.isAnimating && !engine.idleOnly
+        let moving = animating && !idle
         if moving { applyScale(min(motionScale, Self.motionScales[level])) } else { applyScale(stillScale) }
-        if !engine.isAnimating {
+        if !animating {
             settleFrames -= 1
             if settleFrames <= 0 { link.isPaused = true }
         }
         let drawable = update.drawable
         let aspect = Float(drawable.texture.width) / Float(drawable.texture.height)
-        var frame = engine.makeFrame(aspect: aspect)
-        frame.effectsOff = moving ? Self.effectsOff[level] : 0
+        var frame = viewerOpen ? viewer.makeFrame(aspect: aspect) : engine.makeFrame(aspect: aspect)
+        frame.effectsOff |= moving ? Self.effectsOff[level] : 0
         renderer.render(frame, to: drawable.texture, present: drawable)
         if moving { adapt(link) }
-        stats.reason = engine.activityReason + " | lvl " + String(level)
+        stats.reason = (viewerOpen ? "viewer" : engine.activityReason) + " | lvl " + String(level)
         stats.record(interval: dt, tick: tickEnd - cpuStart, encode: CACurrentMediaTime() - tickEnd, gpu: renderer)
     }
 
@@ -168,6 +179,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard !viewer.isOpen else { return }
         let p = convert(event.locationInWindow, from: nil)
         engine.setPointer(SIMD2(Float(p.x / bounds.width - 0.5), Float(0.5 - p.y / bounds.height)))
         engine.wake()
@@ -181,18 +193,35 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
 
     override func mouseDown(with event: NSEvent) {
         downPoint = convert(event.locationInWindow, from: nil)
-        dragging = engine.canInspect
+        if viewer.isOpen { drag = event.modifierFlags.contains(.option) ? .pan : .orbit; return }
+        drag = engine.canInspect ? .inspect : .none
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if dragging { engine.rotate(by: Float(event.deltaX) * 0.004) }
+        let dx = Float(event.deltaX), dy = Float(event.deltaY), h = Float(bounds.height)
+        switch drag {
+        case .inspect: engine.rotate(by: dx * 0.004)
+        case .orbit: viewer.orbit(dx: dx, dy: dy, viewHeight: h)
+        case .pan: viewer.pan(dx: dx, dy: dy, viewHeight: h)
+        case .none: break
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
-        dragging = false
+        drag = .none
+        guard !viewer.isOpen else { return }
         let p = convert(event.locationInWindow, from: nil)
         guard hypot(p.x - downPoint.x, p.y - downPoint.y) < 6, canPick(), let (index, cell) = card(at: p) else { return }
         onSelect?(index, cell)
+    }
+
+    override func rightMouseDown(with event: NSEvent) { if viewer.isOpen { drag = .pan } }
+    override func rightMouseDragged(with event: NSEvent) { mouseDragged(with: event) }
+    override func rightMouseUp(with event: NSEvent) { drag = .none }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard viewer.isOpen else { super.scrollWheel(with: event); return }
+        viewer.dolly(scrollDelta: Float(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas)
     }
 }
 

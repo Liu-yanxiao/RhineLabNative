@@ -9,7 +9,7 @@ APP=build/RhineLab.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/RhineLab"
-cp Resources/Fonts/*.ttf Resources/Models/*.glb Resources/Data/*.json Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp Resources/Fonts/*.ttf Resources/Models/*.glb Resources/Data/*.json Resources/Audio/*.m4a Resources/Audio/*.wav Resources/AppIcon.icns "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

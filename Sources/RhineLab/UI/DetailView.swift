@@ -27,6 +27,7 @@ struct DetailView: View {
                     .foregroundStyle(Color(red: 0.46, green: 0.45, blue: 0.416)).padding(.top, 7)
                 HStack(spacing: 18) { Text("DRAG TO INSPECT"); Text("↔").font(Theme.font(18)) }
                     .font(Theme.font(10)).tracking(1).foregroundStyle(Color(red: 0.506, green: 0.482, blue: 0.439)).padding(.top, 34)
+                ViewerOpenButton().padding(.top, 25)
             }
             .foregroundStyle(Theme.ink).place(left: 60, bottom: 235)
 
@@ -185,5 +186,29 @@ private struct DetailContent: View {
 
     private func label(_ s: String) -> some View {
         Text(s).font(Theme.font(11)).tracking(1).foregroundStyle(Color(red: 0.533, green: 0.502, blue: 0.455))
+    }
+}
+
+/// "360° 查看文档模型 ↗": opens the independent object study.
+private struct ViewerOpenButton: View {
+    @EnvironmentObject var model: AppModel
+    @State private var hovering = false
+
+    var body: some View {
+        Button { model.openViewer() } label: {
+            HStack(spacing: 16) {
+                Text("360° 查看文档模型").font(Theme.font(14)).tracking(0.3)
+                Text("↗").font(Theme.font(20))
+            }
+            .padding(.top, 12).padding(.bottom, 8)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(hovering ? Color(hex: 0x946b3c) : Color(hex: 0x8e897b)).frame(height: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(hovering ? Color(hex: 0x946b3c) : Theme.ink)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.2), value: hovering)
     }
 }

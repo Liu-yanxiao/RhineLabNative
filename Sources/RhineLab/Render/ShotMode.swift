@@ -24,6 +24,7 @@ enum ShotMode {
         if args.contains("--bench") { bench(args); return }
         guard let path = value("--shot") else { return }
         let detail = args.contains("--detail")
+        let viewerShot = args.contains("--viewer")
         let index = Int(value("--index") ?? "0") ?? 0
         let dims = (value("--size") ?? "1920x1080").split(separator: "x").compactMap { Int($0) }
         let (w, h) = (dims.first ?? 1920, dims.count > 1 ? dims[1] : 1080)
@@ -41,14 +42,24 @@ enum ShotMode {
             for _ in 0..<Int(seconds * 60) { t += 1.0 / 60; engine.tick(time: t, dt: 1.0 / 60) }
         }
         advance(6)
-        if detail { engine.setDetail(true, time: t); advance(8) }
+        if detail || viewerShot { engine.setDetail(true, time: t); advance(8) }
+        var frame = engine.makeFrame(aspect: Float(w) / Float(h))
+        if viewerShot {
+            let viewer = ViewerEngine()
+            viewer.open(labelIndex: index)
+            if args.contains("--exploded") { viewer.setExploded(true) }
+            if args.contains("--frosted") { viewer.setClear(false) }
+            var vt = 0.0
+            for _ in 0..<(4 * 60) { vt += 1.0 / 60; viewer.tick(time: vt, dt: 1.0 / 60) }
+            frame = viewer.makeFrame(aspect: Float(w) / Float(h))
+        }
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
         desc.usage = [.renderTarget, .shaderRead]
         desc.storageMode = .shared
         let target = renderer.device.makeTexture(descriptor: desc)!
         let done = DispatchSemaphore(value: 0)
-        renderer.render(engine.makeFrame(aspect: Float(w) / Float(h)), to: target) { done.signal() }
+        renderer.render(frame, to: target) { done.signal() }
         done.wait()
 
         var bytes = [UInt8](repeating: 0, count: w * h * 4)

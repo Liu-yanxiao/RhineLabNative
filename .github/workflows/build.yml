@@ -28,6 +28,9 @@ jobs:
           APP=build/RhineLab.app/Contents/MacOS/RhineLab
           $APP --shot shots/archive.png --size 1920x1080
           $APP --shot shots/detail.png --detail --size 1920x1080
+          $APP --shot shots/viewer.png --viewer --size 1920x1080
+          $APP --shot shots/viewer-exploded.png --viewer --exploded --size 1920x1080
+          $APP --shot shots/viewer-frosted.png --viewer --frosted --size 1920x1080
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -29,19 +29,26 @@ private struct Stage: View {
 
     var body: some View {
         ZStack {
-            if model.mode == .boot { BootView().transition(.opacity) }
-            BrandHeader().place(left: 59, top: 114)
-            if model.mode != .boot {
-                SystemNav().place(right: 59, top: 124).transition(.opacity)
-                PoweredBy().transition(.opacity)
-                SystemFooter().transition(.opacity)
+            Group {
+                if model.mode == .boot { BootView().transition(.opacity) }
+                BrandHeader().place(left: 59, top: 114)
+                if model.mode != .boot {
+                    SystemNav().place(right: 59, top: 124).transition(.opacity)
+                    PoweredBy().transition(.opacity)
+                    SystemFooter().transition(.opacity)
+                }
+                if model.mode == .archive { ArchiveHUD().transition(.opacity) }
+                if model.mode == .detail { DetailView().transition(.opacity.animation(.easeOut(duration: 0.5).delay(0.6))) }
+                if model.mode == .boot { SkipButton().place(right: 60, top: 121).transition(.opacity) }
             }
-            if model.mode == .archive { ArchiveHUD().transition(.opacity) }
-            if model.mode == .detail { DetailView().transition(.opacity.animation(.easeOut(duration: 0.5).delay(0.6))) }
-            if model.mode == .boot { SkipButton().place(right: 60, top: 121).transition(.opacity) }
+            // The object study covers the terminal; the page underneath stays mounted, only hidden.
+            .opacity(model.viewerOpen ? 0 : 1)
+            .allowsHitTesting(!model.viewerOpen)
+            if model.viewerOpen { ViewerView().transition(.opacity) }
             ModalHost()
             Toast()
         }
+        .animation(.easeOut(duration: model.viewerOpen ? 0.32 : 0.22), value: model.viewerOpen)
         .animation(ease, value: model.mode)
         .animation(ease, value: model.modal)
         .animation(ease, value: model.toast)
