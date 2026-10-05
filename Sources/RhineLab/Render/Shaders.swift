@@ -231,12 +231,6 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float transmission = mix(m.p0.z, m.p0.w, q);
     float thickness = m.p1.x;
     float attDist = m.p1.y;
-    float3 attenColor = m.atten.rgb;
-    if (frost && m.attenArray.w > 0.5) {
-        thickness = mix(m.p2.z, thickness, q);
-        attDist = mix(m.p2.w, attDist, q);
-        attenColor = mix(m.attenArray.rgb, attenColor, q);
-    }
     if (frost) {
         rough = mix(mix(0.28, 0.42, q), 0.025, clearing);
         transmission = mix(transmission, 0.985, clearing);
@@ -249,6 +243,15 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float3 N = normalize(in.wn);
     if (!front) N = -N;
     float3 V = normalize(f.camPos.xyz - in.wpos);
+    float3 attenColor = m.atten.rgb;
+    if (frost && m.attenArray.w > 0.5) {
+        // Looking down into the top of the slab the ray travels through the whole tinted body,
+        // so the tops read as the same warm tone as the sides rather than a bright lid.
+        float topPath = mix(m.p2.z, f.fillColor.w, saturate(N.y));
+        thickness = mix(topPath, thickness, q);
+        attDist = mix(m.p2.w, attDist, q);
+        attenColor = mix(m.attenArray.rgb, attenColor, q);
+    }
     float shadow = shadowFactor(f, shadowMap, in.wpos, N, in.position.xy);
     float clearcoat = m.p2.x * (1.0 - q) * (1.0 - clearing);
     Lit L = lightSurface(f, albedo, mix(m.p0.x, m.p0.y, q), rough, N, V, shadow, envSpec, envIrr, clearcoat, m.p2.y);

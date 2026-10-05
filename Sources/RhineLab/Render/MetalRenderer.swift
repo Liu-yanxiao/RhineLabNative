@@ -476,7 +476,7 @@ final class MetalRenderer {
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
         u.keyColor = SIMD4(srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0)) * Self.keyScale * lights, Look.number("RL_LEAK", 2.5))
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
-        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, 1)
+        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, Look.number("RL_TOP_PATH", 0.9))
         u.hemiSky = SIMD4(srgbLinear(Look.hex("RL_HEMI_SKY", 0xfff4e6)) * Self.hemiScale * lights, 1)
         u.hemiGround = SIMD4(srgbLinear(Look.hex("RL_HEMI_GROUND", 0x9c7d5c)) * Self.hemiScale * lights, 1)
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
