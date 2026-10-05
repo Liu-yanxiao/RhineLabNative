@@ -68,22 +68,22 @@ enum Surfaces {
         switch mesh.materialName {
         case "Frosted_Polymer":
             // Video look: inside the array the shell reads as a warm tan body; the extracted cover stays near-white.
-            set(low: srgbLinear(Look.hex("RL_FROST", 0xf0e2cc)), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
+            set(low: srgbLinear(Look.hex("RL_FROST", 0xe8dccc)), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
             // Web `arrayMat`: transmission 0.78 with a light clearcoat; the extracted cover clears to 0.9.
             m.p0.z = 0.78; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
             // Inside the array the body is thicker and tinted (video look): longer oblique paths pick up the warm tone.
             m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
-            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xdcccb8)), 1)
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xe6dccc)), 1)
             kind = .frost
         case "Ivory_Edges":
             // Video look: the body plate is translucent and tinted like the cover (web keeps it opaque in the array).
-            set(low: srgbLinear(Look.hex("RL_IVORY", 0xf0e2cc)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            set(low: srgbLinear(Look.hex("RL_IVORY", 0xe8dccc)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
             m.p0.z = Look.number("RL_IVORY_T", 0.6); m.p0.w = 0.65
             m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
             m.p2 = SIMD4(0, 0, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
-            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xdcccb8)), 1)
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xe6dccc)), 1)
             kind = .ivory
         case "Optical_Diffuser":
             set(low: srgbLinear(0xa09484), rl: 0.7, high: srgbLinear(0xe2dad4), rh: 0.7, metalLow: 0, metalHigh: 0)

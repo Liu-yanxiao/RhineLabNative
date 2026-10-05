@@ -41,17 +41,6 @@ jobs:
             $APP --shot shots/ui-$mode-dark.png --ui $mode --dark --size 1920x1080 || echo "ui $mode dark failed"
           done
           ls -la shots
-      - name: Look sweep
-        continue-on-error: true
-        run: |
-          APP=build/RhineLab.app/Contents/MacOS/RhineLab
-          sweep() { name=$1; shift; env "$@" $APP --shot shots/sweep-$name-archive.png --ui archive --size 1920x1080 || true; env "$@" $APP --shot shots/sweep-$name-detail.png --ui detail --size 1920x1080 || true; }
-          sweep ao2 RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=2 RL_AO_RADIUS=2.5
-          sweep ao3 RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=3 RL_AO_RADIUS=3
-          sweep ao2key RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=2 RL_AO_RADIUS=2.5 RL_KEY=2.4
-          sweep ao2sc0 RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=2 RL_AO_RADIUS=2.5 RL_SCATTER=0
-          sweep ao2dark RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=2 RL_AO_RADIUS=2.5 RL_EXPOSURE=0.8 RL_ENV=0.35
-          sweep ao2frost RL_LINE_A=-60,10,60 RL_LINE_B=-30,10,-30 RL_SCATTER=0.15 RL_ATTEN=e6dccc RL_FOG_NEAR=1 RL_FOG_FAR=14 RL_AO=2 RL_AO_RADIUS=2.5 RL_FROST=e8dccc RL_IVORY=e8dccc
       - uses: actions/upload-artifact@v4
         if: always()
         with:

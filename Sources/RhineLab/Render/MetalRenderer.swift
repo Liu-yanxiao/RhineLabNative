@@ -95,8 +95,8 @@ final class MetalRenderer {
 
     // Light intensities follow the web version's `createArchiveLighting` (baseline look); AO is a light touch since the web has none.
     static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 0.9
-    static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 0.4
-    static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 0.6
+    static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 2.5
+    static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 2.0
     static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.6
     static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.3
     static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.55
@@ -467,8 +467,8 @@ final class MetalRenderer {
         // Key light: a strip (two world-space endpoints) unless RL_LINE=0, in which case a directional
         // light from RL_KEY_POS. The shadow map projects along the strip's midpoint direction.
         let strip = Look.number("RL_LINE", 1) > 0.5
-        let stripA = Look.vector("RL_LINE_A", SIMD3<Float>(-70, 4, 60))
-        let stripB = Look.vector("RL_LINE_B", SIMD3<Float>(-30, 4, -30))
+        let stripA = Look.vector("RL_LINE_A", SIMD3<Float>(-60, 10, 60))
+        let stripB = Look.vector("RL_LINE_B", SIMD3<Float>(-30, 10, -30))
         let lightEye = strip ? (stripA + stripB) * 0.5 : Look.vector("RL_KEY_POS", SIMD3<Float>(-8, 10, -10))
         let lightView = Matrix.lookAt(eye: lightEye, target: .zero, up: SIMD3(0, 1, 0))
         let reach = simd_length(lightEye)
@@ -492,7 +492,7 @@ final class MetalRenderer {
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }
-        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.3))
+        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.1))
         let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * dof
         u.clip = SIMD4(frame.near, frame.far, aperture, 0.011)
         u.ao = SIMD4(Self.aoRadius, Self.aoStrength, 0.25, Float(max(16, quality.aoSamples)))
