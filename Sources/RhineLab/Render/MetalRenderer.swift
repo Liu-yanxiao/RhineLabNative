@@ -83,6 +83,8 @@ final class MetalRenderer {
     private var msaaColor: MTLTexture!
     private var msaaDepth: MTLTexture!
     private var captureColor: MTLTexture!
+    private var captureOpaque: MTLTexture!
+    private var captureBackDepth: MTLTexture!
     private var captureDepth: MTLTexture!
     private var captureMSAA: MTLTexture!
     private var resolved: MTLTexture!
@@ -396,6 +398,7 @@ final class MetalRenderer {
 
     private struct Targets {
         var captureColor: MTLTexture, captureMSAA: MTLTexture?, captureDepth: MTLTexture
+        var captureOpaque: MTLTexture, captureBackDepth: MTLTexture
         var msaaColor: MTLTexture?, msaaDepth: MTLTexture?
         var resolved: MTLTexture, depthResolved: MTLTexture, ao: MTLTexture
     }
@@ -412,6 +415,7 @@ final class MetalRenderer {
         }
         let t = targetCache[key]!
         captureColor = t.captureColor; captureMSAA = t.captureMSAA; captureDepth = t.captureDepth
+        captureOpaque = t.captureOpaque; captureBackDepth = t.captureBackDepth
         msaaColor = t.msaaColor; msaaDepth = t.msaaDepth
         resolved = t.resolved; depthResolved = t.depthResolved; aoTexture = t.ao
         if shadowMap == nil {
@@ -443,6 +447,8 @@ final class MetalRenderer {
             captureColor: target(.rgba16Float, cw, ch, mips: true, read: true),
             captureMSAA: msaa ? target(.rgba16Float, cw, ch, ms: true, memoryless: true) : nil,
             captureDepth: target(.depth32Float, cw, ch, ms: msaa, memoryless: true),
+            captureOpaque: target(.rgba16Float, cw, ch, mips: true, read: true),
+            captureBackDepth: target(.depth32Float, cw, ch, memoryless: true),
             msaaColor: msaa ? target(.rgba16Float, w, h, ms: true, memoryless: true) : nil,
             msaaDepth: msaa ? target(.depth32Float, w, h, ms: true, memoryless: true) : nil,
             resolved: target(.rgba16Float, w, h, read: true),
@@ -591,6 +597,39 @@ final class MetalRenderer {
             drawOpaque(e, capture: true)
             e.endEncoding()
         }
+        func drawTransmissive(_ e: MTLRenderCommandEncoder) {
+            if let a = frame.assembly { drawAssembly(e, a, transmissive: true); return }
+            for m in arrayMeshes where m.kind == .frost {
+                e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
+                draw(m, on: e, instances: count)
+            }
+            for var inst in cardInstances {
+                e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                for m in cardMeshes where m.kind == .frost || m.kind == .ivory { draw(m, on: e) }
+            }
+        }
+        if let blit = cb.makeBlitCommandEncoder() {
+            blit.generateMipmaps(for: captureColor)
+            blit.copy(from: captureColor, to: captureOpaque)
+            blit.endEncoding()
+        }
+        // 2b. Back faces of the glass go into the capture as well (three.js renders DoubleSide
+        // transmissive objects' back sides into its transmission target): seen through its front
+        // face, a card shows its own lit far side rather than the floor, which is what gives the
+        // array its thick, milky body.
+        let cp1 = MTLRenderPassDescriptor()
+        cp1.colorAttachments[0].texture = captureColor
+        cp1.colorAttachments[0].loadAction = .load; cp1.colorAttachments[0].storeAction = .store
+        cp1.depthAttachment.texture = captureBackDepth
+        cp1.depthAttachment.loadAction = .clear; cp1.depthAttachment.storeAction = .dontCare; cp1.depthAttachment.clearDepth = 1
+        if let e = cb.makeRenderCommandEncoder(descriptor: cp1), let backPipe = pipeTransBy[1] {
+            e.setRenderPipelineState(backPipe)
+            bindScene(e)
+            e.setCullMode(.front)
+            e.setFragmentTexture(captureOpaque, index: 0)
+            drawTransmissive(e)
+            e.endEncoding()
+        }
         if let blit = cb.makeBlitCommandEncoder() {
             blit.generateMipmaps(for: captureColor)
             blit.endEncoding()
@@ -623,18 +662,7 @@ final class MetalRenderer {
 
             e.setRenderPipelineState(pipeTrans)
             e.setFragmentTexture(captureColor, index: 0)
-            if let a = frame.assembly {
-                drawAssembly(e, a, transmissive: true)
-            } else {
-                for m in arrayMeshes where m.kind == .frost {
-                    e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
-                    draw(m, on: e, instances: count)
-                }
-                for var inst in cardInstances {
-                    e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
-                    for m in cardMeshes where m.kind == .frost || m.kind == .ivory { draw(m, on: e) }
-                }
-            }
+            drawTransmissive(e)
             // Printed labels
             e.setRenderPipelineState(pipeLabel)
             e.setDepthStencilState(depthNoWrite)
