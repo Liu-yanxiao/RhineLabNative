@@ -42,7 +42,7 @@ private struct DarkAtmosphere: View {
 }
 
 /// The 1920 × 1080 interface layer drawn over the 3D scene.
-private struct Stage: View {
+struct Stage: View {
     @EnvironmentObject var model: AppModel
     private let ease = Animation.easeOut(duration: 0.45)
 
