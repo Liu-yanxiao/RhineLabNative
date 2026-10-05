@@ -17,7 +17,7 @@ struct Frame {
     float4 keyDir;  float4 keyColor;
     float4 fillDir; float4 fillColor;
     float4 hemiSky; float4 hemiGround;
-    float4 post;        // x focusDistance, y dof strength
+    float4 post;        // x focusDistance, y dof strength, z effects off, w back-scatter strength
     float4 clip;        // near, far, aperture, max blur
     float4 ao;          // radius, strength, bias, tap count
 };
@@ -283,6 +283,13 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     transmitted = (1.0 - F) * transmitted * atten * albedo;
 
     float3 color = mix(L.diffuse, transmitted, transmission) + L.spec;
+    if (frost && f.post.w > 0.0) {
+        // Light entering from behind scatters through the frosted body: faces turned away from the
+        // key light glow with the body tint instead of falling dark (the video's backlit amber).
+        float backlit = saturate(-dot(N, f.keyDir.xyz)) * 0.7 + 0.3 * (1.0 - abs(dot(N, f.keyDir.xyz)));
+        float3 glow = f.keyColor.rgb * attenColor * albedo * backlit * f.post.w * (1.0 - clearing);
+        color += glow;
+    }
     color = applyFog(f, color, in.wpos);
     return float4(color, 1);
 }
