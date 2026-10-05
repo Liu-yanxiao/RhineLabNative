@@ -14,7 +14,23 @@ jobs:
           sw_vers
           xcodebuild -version
           swift --version
+          system_profiler SPDisplaysDataType | head -20 || true
       - name: Build (debug)
-        run: swift build -c debug 2>&1 | tee build.log
+        run: swift build -c debug
       - name: Build (release)
         run: swift build -c release
+      - name: Package app
+        run: scripts/build-app.sh
+      - name: Render screenshots (headless Metal)
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          APP=build/RhineLab.app/Contents/MacOS/RhineLab
+          $APP --shot shots/archive.png --size 1920x1080
+          $APP --shot shots/detail.png --detail --size 1920x1080
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots
+          path: shots
+          if-no-files-found: warn
