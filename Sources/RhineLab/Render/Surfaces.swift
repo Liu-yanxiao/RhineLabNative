@@ -73,12 +73,12 @@ enum Surfaces {
             m.p0.z = 0.78; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
             // Inside the array the body is thicker and tinted (video look): longer oblique paths pick up the warm tone.
-            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.2))
+            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
-            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xc8a478)), 1)
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xd8c4ac)), 1)
             kind = .frost
         case "Ivory_Edges":
-            set(low: srgbLinear(Look.hex("RL_IVORY", 0xe6d2b8)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            set(low: srgbLinear(Look.hex("RL_IVORY", 0xf5ebdd)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
             m.p0.z = 0; m.p0.w = 0.65
             m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
             kind = .ivory

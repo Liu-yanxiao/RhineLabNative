@@ -95,10 +95,10 @@ final class MetalRenderer {
     static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 1.05
     static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 0.4
     static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 0.6
-    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.8
+    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.2
     static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.3
-    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.45
-    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.35
+    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.55
+    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.45
     /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
     private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
     private func linearBackground(_ srgb: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {
@@ -482,7 +482,7 @@ final class MetalRenderer {
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }
-        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.35))
+        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.3))
         let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * dof
         u.clip = SIMD4(frame.near, frame.far, aperture, 0.011)
         u.ao = SIMD4(Self.aoRadius, Self.aoStrength, 0.25, Float(max(16, quality.aoSamples)))
