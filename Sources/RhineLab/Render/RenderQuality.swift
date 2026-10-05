@@ -39,13 +39,16 @@ struct RenderQuality: Equatable, Codable {
     static let pixelBudget = 8_294_400
     static let superPixelBudget = 921_600
 
+    /// Bumped whenever the defaults change, so a saved copy of old defaults does not outlive them.
+    static let storageKey = "rhine-quality-2"
+
     static func load() -> RenderQuality {
-        guard let data = UserDefaults.standard.data(forKey: "rhine-quality"),
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
               let q = try? JSONDecoder().decode(RenderQuality.self, from: data) else { return .original }
         return q
     }
 
     func save() {
-        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: "rhine-quality") }
+        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: storageKey) }
     }
 }
