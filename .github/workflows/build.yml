@@ -1,0 +1,20 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  swift-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build (debug)
+        run: swift build -c debug 2>&1 | tee build.log
+      - name: Build (release)
+        run: swift build -c release
