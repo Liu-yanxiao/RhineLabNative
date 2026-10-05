@@ -1,0 +1,112 @@
+import simd
+import Metal
+
+/// Mirrors `SurfaceMat` in the shader.
+struct SurfaceMat {
+    var colorLow = SIMD4<Float>(1, 1, 1, 0.5)     // rgb, roughness
+    var colorHigh = SIMD4<Float>(1, 1, 1, 0.5)
+    var p0 = SIMD4<Float>(0, 0, 0, 0)            // metalLow, metalHigh, transmissionLow, transmissionHigh
+    var p1 = SIMD4<Float>(0.1, 1e9, 1.46, 0)     // thickness, attenuation distance, ior, kind
+    var atten = SIMD4<Float>(1, 1, 1, 1)
+}
+
+enum SurfaceKind: Float { case opaque = 0, frost = 1, internalPart = 2, floor = 3, ivory = 4 }
+
+func srgbLinear(_ hex: UInt32) -> SIMD3<Float> {
+    func c(_ v: UInt32) -> Float {
+        let s = Float(v & 255) / 255
+        return s <= 0.04045 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4)
+    }
+    return SIMD3(c(hex >> 16), c(hex >> 8), c(hex))
+}
+
+enum Surfaces {
+    /// Surfaces that exist in the array; everything else only appears on an extracted card.
+    static let arraySurfaces: Set<String> = [
+        "Frosted_Polymer", "Ivory_Edges", "Titanium_Fasteners", "Index_Inlay", "Optical_Diffuser",
+    ]
+    static let hidden: Set<String> = ["Carbon_Ink"]
+
+    static func material(for mesh: GLBMesh) -> (mat: SurfaceMat, kind: SurfaceKind) {
+        var m = SurfaceMat()
+        let glb = mesh.baseColor
+        let rough = mesh.roughness, metal = mesh.metallic
+        func set(low: SIMD3<Float>, rl: Float, high: SIMD3<Float>, rh: Float, metalLow: Float? = nil, metalHigh: Float? = nil) {
+            m.colorLow = SIMD4(low, rl); m.colorHigh = SIMD4(high, rh)
+            m.p0.x = metalLow ?? metal; m.p0.y = metalHigh ?? metal
+        }
+        var kind: SurfaceKind = Surfaces.arraySurfaces.contains(mesh.materialName) ? .opaque : .internalPart
+        switch mesh.materialName {
+        case "Frosted_Polymer":
+            set(low: srgbLinear(0xfff7ed), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
+            m.p0.z = 0.35; m.p0.w = 0.9
+            m.p1 = SIMD4(0.12, 2, 1.46, 0)
+            m.atten = SIMD4(srgbLinear(0xeee6df), 1)
+            kind = .frost
+        case "Ivory_Edges":
+            set(low: srgbLinear(0xfff5e9), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            m.p0.z = 0; m.p0.w = 0.65
+            m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
+            kind = .ivory
+        case "Optical_Diffuser":
+            set(low: srgbLinear(0xa09484), rl: 0.7, high: srgbLinear(0xe2dad4), rh: 0.7, metalLow: 0, metalHigh: 0)
+        case "Titanium_Fasteners":
+            let c = simd_min(glb * 1.6, SIMD3<Float>(repeating: 0.95)); set(low: c, rl: 0.28, high: c, rh: 0.28, metalLow: 0.5, metalHigh: 0.5)
+        case "Index_Inlay":
+            set(low: srgbLinear(0xe4d6c5), rl: rough, high: glb, rh: rough, metalLow: 0.05, metalHigh: metal)
+        case "Internal_Ceramic":
+            let c = srgbLinear(0xc7beb6); set(low: c, rl: 0.6, high: c, rh: 0.6)
+        case "Printed_Label":
+            let c = srgbLinear(0xeae5dc); set(low: c, rl: rough, high: c, rh: rough, metalLow: 0, metalHigh: 0)
+        case "Subsurface_Optics":
+            let c = srgbLinear(0xb9aba1); set(low: c, rl: 0.48, high: c, rh: 0.48, metalLow: 0.05, metalHigh: 0.05)
+        case "Optical_Edges":
+            let c = srgbLinear(0xd4c7be); set(low: c, rl: 0.26, high: c, rh: 0.26, metalLow: 0.08, metalHigh: 0.08)
+        default:
+            set(low: glb, rl: rough, high: glb, rh: rough)
+        }
+        m.p1.w = kind.rawValue
+        return (m, kind)
+    }
+
+    static var floor: SurfaceMat {
+        var m = SurfaceMat()
+        let c = srgbLinear(0xd8c9b9)
+        m.colorLow = SIMD4(c, 0.95); m.colorHigh = SIMD4(c, 0.95)
+        m.p1.w = SurfaceKind.floor.rawValue
+        return m
+    }
+}
+
+/// A mesh uploaded to the GPU (interleaved position, normal, uv).
+struct GPUMesh {
+    let vertices: MTLBuffer
+    let indices: MTLBuffer
+    let indexCount: Int
+    let material: SurfaceMat
+    let kind: SurfaceKind
+    let name: String
+
+    init(device: MTLDevice, positions: [SIMD3<Float>], normals: [SIMD3<Float>], uvs: [SIMD2<Float>],
+         indices: [UInt32], material: SurfaceMat, kind: SurfaceKind, name: String) {
+        var data = [Float]()
+        data.reserveCapacity(positions.count * 8)
+        for i in 0..<positions.count {
+            let n = i < normals.count ? normals[i] : SIMD3<Float>(0, 1, 0)
+            let uv = i < uvs.count ? uvs[i] : SIMD2<Float>(0, 0)
+            data += [positions[i].x, positions[i].y, positions[i].z, n.x, n.y, n.z, uv.x, uv.y]
+        }
+        vertices = device.makeBuffer(bytes: data, length: data.count * 4, options: .storageModeShared)!
+        self.indices = device.makeBuffer(bytes: indices, length: indices.count * 4, options: .storageModeShared)!
+        indexCount = indices.count
+        self.material = material
+        self.kind = kind
+        self.name = name
+    }
+
+    init(device: MTLDevice, glb mesh: GLBMesh) {
+        let (m, kind) = Surfaces.material(for: mesh)
+        self.init(device: device, positions: mesh.positions, normals: mesh.normals, uvs: mesh.uvs,
+                  indices: mesh.indices, material: m, kind: kind, name: mesh.materialName)
+    }
+}
