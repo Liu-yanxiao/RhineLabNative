@@ -215,9 +215,10 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     constexpr sampler tri(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge);
     float q = in.q;
     bool frost = m.p1.w > 0.5 && m.p1.w < 1.5;
+    bool body = frost || (m.p1.w > 3.5 && m.p1.w < 4.5);   // the ivory body shares the array tint
     float clearing = frost ? glassReveal(in.rev, in.h) : 0.0;
     float3 albedo = mix(m.colorLow.rgb, m.colorHigh.rgb, q);
-    float tintAmount = frost ? 1.0 - q : 0.0;
+    float tintAmount = body ? 1.0 - q : 0.0;
     float g = smoothstep(0.1, 1.0, clamp(in.h, 0.0, 1.0));
     float3 gradient = mix(float3(0.40, 0.30, 0.20), float3(1.0, 0.98, 0.94), g);
     // The far side is seen again through the front, so the body tint is split between the two.
@@ -244,7 +245,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     if (!front) N = -N;
     float3 V = normalize(f.camPos.xyz - in.wpos);
     float3 attenColor = m.atten.rgb;
-    if (frost && m.attenArray.w > 0.5) {
+    if (body && m.attenArray.w > 0.5) {
         // Looking down into the top of the slab the ray travels through the whole tinted body,
         // so the tops read as the same warm tone as the sides rather than a bright lid.
         float topPath = mix(m.p2.z, f.fillColor.w, saturate(N.y));
@@ -286,7 +287,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     transmitted = (1.0 - F) * transmitted * atten * albedo;
 
     float3 color = mix(L.diffuse, transmitted, transmission) + L.spec;
-    if (frost && f.post.w > 0.0) {
+    if (body && f.post.w > 0.0) {
         // Light entering from behind scatters through the frosted body: faces turned away from the
         // key light glow with the body tint instead of falling dark (the video's backlit amber).
         // Most light enters through the lit top edge and fades with depth; a little comes straight

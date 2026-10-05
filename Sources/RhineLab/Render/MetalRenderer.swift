@@ -563,7 +563,7 @@ final class MetalRenderer {
             var identity = InstanceData(posTilt: .zero, yawQR: SIMD4(0, 0, 0, frame.themeAmount))
             e.setVertexBytes(&identity, length: MemoryLayout<InstanceData>.stride, index: 2)
             draw(floorMesh, on: e)
-            for m in arrayMeshes where m.kind != .frost && (!capture || m.name != "Titanium_Fasteners") {
+            for m in arrayMeshes where m.kind != .frost && m.kind != .ivory && (!capture || m.name != "Titanium_Fasteners") {
                 e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
                 draw(m, on: e, instances: count)
             }
@@ -599,7 +599,7 @@ final class MetalRenderer {
         }
         func drawTransmissive(_ e: MTLRenderCommandEncoder) {
             if let a = frame.assembly { drawAssembly(e, a, transmissive: true); return }
-            for m in arrayMeshes where m.kind == .frost {
+            for m in arrayMeshes where m.kind == .frost || m.kind == .ivory {
                 e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
                 draw(m, on: e, instances: count)
             }

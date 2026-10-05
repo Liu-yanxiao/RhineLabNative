@@ -78,9 +78,12 @@ enum Surfaces {
             m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xd8c4ac)), 1)
             kind = .frost
         case "Ivory_Edges":
-            set(low: srgbLinear(Look.hex("RL_IVORY", 0xf5ebdd)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
-            m.p0.z = 0; m.p0.w = 0.65
+            // Video look: the body plate is translucent and tinted like the cover (web keeps it opaque in the array).
+            set(low: srgbLinear(Look.hex("RL_IVORY", 0xf0e2cc)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            m.p0.z = Look.number("RL_IVORY_T", 0.6); m.p0.w = 0.65
             m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
+            m.p2 = SIMD4(0, 0, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xd8c4ac)), 1)
             kind = .ivory
         case "Optical_Diffuser":
             set(low: srgbLinear(0xa09484), rl: 0.7, high: srgbLinear(0xe2dad4), rh: 0.7, metalLow: 0, metalHigh: 0)
