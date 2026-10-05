@@ -7,7 +7,7 @@ struct InspectionOverlay: View {
     @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     @State private var finished = false
-    private let ink = pal.ink   // #24221f
+    private var ink: Color { pal.ink }
 
     /// Map normalised device coordinates of the 3D view into the 1920 × 1080 interface stage.
     private static func stagePoint(_ p: SIMD2<Float>, _ size: CGSize, _ scale: CGFloat) -> CGPoint {
