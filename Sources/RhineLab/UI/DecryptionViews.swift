@@ -2,7 +2,7 @@ import SwiftUI
 import CoreText
 import AppKit
 
-/// Scan lines, corner marks and the confidentiality label drawn over the extracted card.
+/// Scan lines and corner marks drawn over the extracted card.
 struct InspectionOverlay: View {
     @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
@@ -37,12 +37,8 @@ struct InspectionOverlay: View {
                         context.fill(Path(ellipseIn: CGRect(x: p.x - 1.8, y: p.y - 1.8, width: 3.6, height: 3.6)), with: .color(ink.opacity(Double(o.frame.point))))
                     }
                 }
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("CONFIDENTIALITY:").font(Theme.font(23, .semibold))
-                    Text("GENERAL BUSINESS USE").font(Theme.font(30, .bold)).opacity(Double(o.frame.labelValue))
-                }
-                .foregroundStyle(ink).opacity(Double(o.frame.label))
-                .offset(x: 1202, y: 499)
+                // The web shows its CONFIDENTIALITY caption only in cinema mode (`showLabel = cinema`);
+                // in the ordinary app it would sit on top of the document panel.
             }
             .allowsHitTesting(false)
             .onChange(of: o.finished) { _, done in if done { finished = true } }
