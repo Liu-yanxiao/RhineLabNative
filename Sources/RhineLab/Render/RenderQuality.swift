@@ -8,7 +8,7 @@ struct RenderQuality: Equatable, Codable {
     var shadows = 4096              // shadow map size, 0 = off
     var aoSamples = 32              // 0 = off
     var aoResolution: Float = 1
-    var depthOfField = 50           // percent of the original lens; the full lens softens near cards
+    var depthOfField = 100          // percent of the web version's lens
     var transmission: Float = 1     // resolution of the capture the glass refracts
     var anisotropy = 16
 
@@ -16,9 +16,9 @@ struct RenderQuality: Equatable, Codable {
                                            aoResolution: 0.5, depthOfField: 0, transmission: 0.5, anisotropy: 4)
     static let original = RenderQuality()
     static let high = RenderQuality(scale: 125, pixelRatio: 2, antialias: true, shadows: 4096, aoSamples: 32,
-                                    aoResolution: 1, depthOfField: 50, transmission: 1, anisotropy: 16)
+                                    aoResolution: 1, depthOfField: 100, transmission: 1, anisotropy: 16)
     static let ultra = RenderQuality(scale: 150, pixelRatio: 2, antialias: true, shadows: 4096, aoSamples: 64,
-                                     aoResolution: 1, depthOfField: 50, transmission: 1, anisotropy: 16)
+                                     aoResolution: 1, depthOfField: 100, transmission: 1, anisotropy: 16)
     /// 超级性能模式: the lowest cost that keeps every motion.
     static let superPerformance = RenderQuality(scale: 60, pixelRatio: 1, antialias: false, shadows: 0, aoSamples: 0,
                                                 aoResolution: 0.5, depthOfField: 0, transmission: 0.5, anisotropy: 4)
@@ -40,7 +40,7 @@ struct RenderQuality: Equatable, Codable {
     static let superPixelBudget = 921_600
 
     /// Bumped whenever the defaults change, so a saved copy of old defaults does not outlive them.
-    static let storageKey = "rhine-quality-2"
+    static let storageKey = "rhine-quality-3"
 
     static func load() -> RenderQuality {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
