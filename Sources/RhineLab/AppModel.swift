@@ -65,6 +65,7 @@ final class AppModel: ObservableObject {
             if self?.hover != $0 { self?.hover = $0 }
         }
         sceneView.onSelect = { [weak self] index, cell in self?.select(index, navigation: .cell(cell)) }
+        sceneView.onStep = { [weak self] direction in self?.stepFile(direction) }
         viewer.onStatusChanged = { [weak self] status in
             Task { @MainActor in self?.viewerStatus = status }
         }

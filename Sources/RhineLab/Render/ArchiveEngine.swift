@@ -18,6 +18,9 @@ final class ArchiveEngine {
     private var arrayOffsets: [SIMD3<Float>] = []   // world position after track / rail shift
     private var arrayTheme: [Float] = []
     private var theme = ThemeWave()
+    // Hovered card: an extra 0.28 lift that appears over ~200 ms and settles back when the pointer leaves.
+    private var hoverCell: Cell?
+    private var hoverGain: [Cell: Float] = [:]
     static let lightBackground = SIMD3<Float>(231, 228, 223) / 255
     static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
     static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
@@ -174,6 +177,14 @@ final class ArchiveEngine {
 
     func setPointer(_ p: SIMD2<Float>) { pointer = p }
 
+    func setHover(_ cell: Cell?) {
+        lock.lock(); defer { lock.unlock() }
+        guard cell != hoverCell else { return }
+        hoverCell = cell
+        if let cell, hoverGain[cell] == nil { hoverGain[cell] = 0 }
+        wake()
+    }
+
     func wake() {
         lock.lock(); defer { lock.unlock() }
         lock.lock(); defer { lock.unlock() }
@@ -209,6 +220,13 @@ final class ArchiveEngine {
 
         pulses.removeAll { time - $0.time >= 3.2 }
         theme.beginFrame()
+        // Hover lifts ease in and out; a card that has settled back is forgotten.
+        let hoverTarget = (targetDetail || detail > 0.01) ? nil : hoverCell
+        for (cell, gain) in hoverGain {
+            let goal: Float = cell == hoverTarget ? 1 : 0
+            let next = goal > gain ? min(goal, gain + dt / 0.2) : max(goal, gain - dt / 0.2)
+            if next <= 0 && goal == 0 { hoverGain[cell] = nil } else { hoverGain[cell] = next }
+        }
         let aligningCopy = outgoing.contains { $0.returnY != nil }
         let idle = !reduced && idleDrift && targetReveal > 0 && !targetDetail && detail < 0.01
             && returnY == nil && !aligningCopy && time - lastInteraction > 2.5
@@ -301,7 +319,8 @@ final class ArchiveEngine {
             let c = cells[i], p = positions[i]
             let slope = field(Float(c.row) + 0.5, Float(c.lane)) - field(Float(c.row) - 0.5, Float(c.lane))
             arrayShown[i] = !hidden.contains(c)
-            arrayOffsets[i] = v3(p.x - trackX, p.y + field(Float(c.row), Float(c.lane)), p.z + entryZ + railZ)
+            let hover = hoverGain[c].map { 0.28 * Motion.smooth($0) } ?? 0
+            arrayOffsets[i] = v3(p.x - trackX, p.y + field(Float(c.row), Float(c.lane)) + hover, p.z + entryZ + railZ)
             arrayTilt[i] = slope * 0.024 * (1 - detail)
             arrayTheme[i] = arrayShown[i] ? theme.sample(c, time) : theme.target
         }
@@ -554,6 +573,7 @@ final class ArchiveEngine {
         if abs(rotation - targetRotation) > 0.0005 { why.append("rotation") }
         if cameraDelta > 0.01 { why.append("camera") }
         if theme.active(at: now) { why.append("theme") }
+        if hoverGain.contains(where: { $0.value > 0 && $0.value < 1 }) || (hoverCell != nil && hoverGain.values.contains { $0 < 1 }) { why.append("hover") }
         let liftTarget: Float = targetDetail ? Motion.inspectionLift : 0.4 * targetReveal
         if abs(lift.value - liftTarget) > 0.001 { why.append("liftTarget") }
         if abs(columnCamera.value - chosen.x) > 0.001 { why.append("column") }

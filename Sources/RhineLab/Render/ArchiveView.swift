@@ -11,7 +11,10 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     let renderer: MetalRenderer
     var onHover: ((Int?) -> Void)?
     var onSelect: ((Int, Cell) -> Void)?
+    /// Wheel over the array: +1 next file, −1 previous.
+    var onStep: ((Int) -> Void)?
     var canPick: () -> Bool = { true }
+    private var wheelAccumulated: CGFloat = 0
 
     /// Resolution multiplier (relative to points, capped by the screen's backing scale) while still,
     /// and while moving: motion trades a little sharpness for a steady 120 fps.
@@ -199,11 +202,14 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         let p = convert(event.locationInWindow, from: nil)
         engine.setPointer(SIMD2(Float(p.x / bounds.width - 0.5), Float(0.5 - p.y / bounds.height)))
         engine.wake()
-        onHover?(canPick() ? card(at: p)?.0 : nil)
+        let hit = canPick() ? card(at: p) : nil
+        engine.setHover(hit?.1)
+        onHover?(hit?.0)
     }
 
     override func mouseExited(with event: NSEvent) {
         engine.setPointer(.zero)
+        engine.setHover(nil)
         onHover?(nil)
     }
 
@@ -236,8 +242,22 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     override func rightMouseUp(with event: NSEvent) { drag = .none }
 
     override func scrollWheel(with event: NSEvent) {
-        guard viewer.isOpen else { super.scrollWheel(with: event); return }
-        viewer.dolly(scrollDelta: Float(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas)
+        if viewer.isOpen {
+            viewer.dolly(scrollDelta: Float(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas)
+            return
+        }
+        guard canPick() else { return }
+        // A notch (or ~40 pt of trackpad travel) steps one file: down is the next one.
+        if event.hasPreciseScrollingDeltas {
+            if event.phase == .began { wheelAccumulated = 0 }
+            wheelAccumulated += event.scrollingDeltaY
+            if abs(wheelAccumulated) >= 40 {
+                onStep?(wheelAccumulated > 0 ? 1 : -1)
+                wheelAccumulated = 0
+            }
+        } else if event.scrollingDeltaY != 0 {
+            onStep?(event.scrollingDeltaY > 0 ? 1 : -1)
+        }
     }
 }
 
