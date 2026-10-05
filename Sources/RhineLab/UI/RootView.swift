@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct RootView: View {
+
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
 
     var body: some View {
@@ -10,6 +12,7 @@ struct RootView: View {
             ZStack {
                 // The 3D view fills the whole window; only the interface keeps its 16:9 stage.
                 ArchiveSceneView(view: model.sceneView)
+                DarkAtmosphere().opacity(model.dark && !model.viewerOpen ? 1 : 0).allowsHitTesting(false)
                 Stage()
                     .frame(width: 1920, height: 1080)
                     .scaleEffect(scale, anchor: .center)
@@ -18,7 +21,23 @@ struct RootView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
-        .background(Theme.paper)
+        .background(pal.paper)
+        .environment(\.palette, model.dark ? .dark : .light)
+        .animation(.easeInOut(duration: 0.85), value: model.dark)
+    }
+}
+
+/// Dark theme: the array's far edges melt into the page at the top and bottom (web `.archive-atmosphere`).
+private struct DarkAtmosphere: View {
+    @Environment(\.palette) private var pal
+    var body: some View {
+        let paper = Palette.dark.paper
+        ZStack {
+            LinearGradient(stops: [.init(color: paper, location: 0), .init(color: paper.opacity(0.82), location: 0.11),
+                                   .init(color: paper.opacity(0), location: 0.40)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: [.init(color: paper.opacity(0.94), location: 0), .init(color: paper.opacity(0), location: 0.19)],
+                           startPoint: .bottom, endPoint: .top)
+        }
     }
 }
 
@@ -57,6 +76,7 @@ private struct Stage: View {
 
 /// "ENTER SYSTEM ↗" shown while the opening plays; dim until hovered.
 private struct SkipButton: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     @State private var hovering = false
 
@@ -70,7 +90,7 @@ private struct SkipButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
         .opacity(hovering ? 1 : 0.55)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.2), value: hovering)

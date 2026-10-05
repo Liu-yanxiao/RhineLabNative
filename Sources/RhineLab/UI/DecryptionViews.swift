@@ -4,9 +4,10 @@ import AppKit
 
 /// Scan lines, corner marks and the confidentiality label drawn over the extracted card.
 struct InspectionOverlay: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     @State private var finished = false
-    private let ink = Color(red: 0.141, green: 0.133, blue: 0.122)   // #24221f
+    private let ink = pal.ink   // #24221f
 
     /// Map normalised device coordinates of the 3D view into the 1920 × 1080 interface stage.
     private static func stagePoint(_ p: SIMD2<Float>, _ size: CGSize, _ scale: CGFloat) -> CGPoint {
@@ -52,13 +53,14 @@ struct InspectionOverlay: View {
 
 /// Text with black redaction bars that slide away line by line while the glass clears.
 struct RedactedText: View {
+    @Environment(\.palette) private var pal
     let text: String
     var weight: Theme.Weight = .regular
     let size: CGFloat
     var tracking: CGFloat = 0
     var lineSpacing: CGFloat = 0
     var width: CGFloat? = nil
-    var color: Color = Theme.ink
+    var color: Color? = nil
     let progress: Float
     var order = 0
     var count = 12
@@ -90,13 +92,13 @@ struct RedactedText: View {
 
     var body: some View {
         Text(text).font(Theme.font(size, weight)).tracking(tracking).lineSpacing(lineSpacing)
-            .foregroundStyle(color)
+            .foregroundStyle(color ?? pal.ink)
             .frame(width: width, alignment: .leading)
             .overlay(alignment: .topLeading) {
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                         let t = bar(i)
-                        Color(red: 0.125, green: 0.133, blue: 0.113)
+                        pal.ink
                             .frame(width: line.w + 2, height: line.h + 2)
                             .offset(x: t * (line.w + 2) * 1.01)
                             .frame(width: line.w + 2, height: line.h + 2, alignment: .leading)

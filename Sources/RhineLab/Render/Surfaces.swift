@@ -8,6 +8,7 @@ struct SurfaceMat {
     var p0 = SIMD4<Float>(0, 0, 0, 0)            // metalLow, metalHigh, transmissionLow, transmissionHigh
     var p1 = SIMD4<Float>(0.1, 1e9, 1.46, 0)     // thickness, attenuation distance, ior, kind
     var atten = SIMD4<Float>(1, 1, 1, 1)
+    var dark = SIMD4<Float>(0.5, 0.5, 0.5, 0)    // albedo under the dark theme
 }
 
 enum SurfaceKind: Float { case opaque = 0, frost = 1, internalPart = 2, floor = 3, ivory = 4 }
@@ -26,6 +27,16 @@ enum Surfaces {
         "Frosted_Polymer", "Ivory_Edges", "Titanium_Fasteners", "Index_Inlay", "Optical_Diffuser",
     ]
     static let hidden: Set<String> = ["Carbon_Ink"]
+
+    /// Dark-theme albedo per surface (web `theme-material.ts`).
+    static let darkSurfaces: [String: UInt32] = [
+        "Frosted_Polymer": 0x626b70, "Ivory_Edges": 0x687277, "Optical_Diffuser": 0x192226,
+        "Titanium_Fasteners": 0xb1b9bb, "Index_Inlay": 0xc6a36b, "Printed_Label": 0x303a3e,
+        "Subsurface_Optics": 0x939e9f, "Optical_Edges": 0xbbc3bc, "Carbon_Ink": 0xb6bdb8,
+    ]
+    static func darkColor(for name: String) -> SIMD3<Float> {
+        srgbLinear(darkSurfaces[name] ?? (name.contains("Orange") ? 0xbb8850 : 0x969f9f))
+    }
 
     static func material(for mesh: GLBMesh) -> (mat: SurfaceMat, kind: SurfaceKind) {
         var m = SurfaceMat()
@@ -66,6 +77,7 @@ enum Surfaces {
             set(low: glb, rl: rough, high: glb, rh: rough)
         }
         m.p1.w = kind.rawValue
+        m.dark = SIMD4(darkColor(for: mesh.materialName), 0)
         return (m, kind)
     }
 
@@ -74,6 +86,7 @@ enum Surfaces {
         let c = srgbLinear(0xd8c9b9)
         m.colorLow = SIMD4(c, 0.95); m.colorHigh = SIMD4(c, 0.95)
         m.p1.w = SurfaceKind.floor.rawValue
+        m.dark = SIMD4(srgbLinear(0x192125), 0)
         return m
     }
 }

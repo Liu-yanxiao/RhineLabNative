@@ -79,13 +79,14 @@ final class MetalRenderer {
     static let aoRadius: Float = 2.0
     static let aoStrength: Float = 3.0
     static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.48
-    /// Linear colours that come out as the requested sRGB background after tone mapping (one per colour).
-    private var backgroundCache: [UInt32: SIMD3<Float>] = [:]
-    private func linearBackground(_ srgb: SIMD3<Float>) -> SIMD3<Float> {
-        func byte(_ v: Float) -> UInt32 { UInt32(max(0, min(255, (v * 255).rounded()))) }
-        let key = byte(srgb.x) << 16 | byte(srgb.y) << 8 | byte(srgb.z)
+    /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
+    private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
+    private func linearBackground(_ srgb: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {
+        func byte(_ v: Float) -> UInt64 { UInt64(max(0, min(255, (v * 255).rounded()))) }
+        let key = byte(srgb.x) << 16 | byte(srgb.y) << 8 | byte(srgb.z) | UInt64(max(0, exposure) * 10000) << 24
         if let hit = backgroundCache[key] { return hit }
-        let solved = Self.solveBackground(target: srgb)
+        if backgroundCache.count > 256 { backgroundCache.removeAll() }
+        let solved = Self.solveBackground(target: srgb, exposure: exposure)
         backgroundCache[key] = solved
         return solved
     }
@@ -143,7 +144,7 @@ final class MetalRenderer {
         return out
     }
 
-    private static func solveBackground(target: SIMD3<Float>) -> SIMD3<Float> {
+    private static func solveBackground(target: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {
         var want = SIMD3<Float>(repeating: 0)
         for i in 0..<3 {
             let s = target[i]
@@ -414,15 +415,19 @@ final class MetalRenderer {
         let lightView = Matrix.lookAt(eye: lightEye, target: .zero, up: SIMD3(0, 1, 0))
         u.lightViewProj = Matrix.orthographic(left: -16, right: 16, bottom: -15, top: 15, near: 0.1, far: 45) * lightView
         u.camPos = SIMD4(frame.cameraPosition, 1)
-        u.params = SIMD4(Self.exposure, frame.fogNear, frame.fogFar, Self.envScale)
+        // Dark theme (web `themeEnvironment`): exposure 1.0 → 0.98, environment 0.52 → 0.32, lights × 0.65.
+        let th = max(0, min(1, frame.themeAmount))
+        let exposure = Self.exposure * (1 - 0.02 * th)
+        let lights = 1 - 0.35 * th
+        u.params = SIMD4(exposure, frame.fogNear, frame.fogFar, Self.envScale * (1 - 0.385 * th))
         u.screen = SIMD4(Float(width), Float(height), 0, frame.time)
-        u.fogColor = SIMD4(linearBackground(frame.background), 1)
+        u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
-        u.keyColor = SIMD4(srgbLinear(0xfff7ed) * 1.4, 1)
+        u.keyColor = SIMD4(srgbLinear(0xfff7ed) * 1.4 * lights, 1)
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
-        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * 0.6, 1)
-        u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * 0.65, 1)
-        u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * 0.65, 1)
+        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * 0.6 * lights, 1)
+        u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * 0.65 * lights, 1)
+        u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * 0.65 * lights, 1)
         u.post = SIMD4(frame.focusDistance, frame.depthOfField, Float(frame.effectsOff), 0)
         let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * frame.depthOfField
         u.clip = SIMD4(frame.near, frame.far, aperture, 0.011)
@@ -449,9 +454,12 @@ final class MetalRenderer {
         let arrayBuffer = arrayBuffers[bufferIndex]
         let count = min(frame.arrayCards.count, 512)
         let ptr = arrayBuffer.contents().bindMemory(to: InstanceData.self, capacity: 512)
-        for i in 0..<count { ptr[i] = InstanceData(posTilt: frame.arrayCards[i], yawQR: .zero) }
+        let themed = frame.arrayTheme.count >= count
+        for i in 0..<count {
+            ptr[i] = InstanceData(posTilt: frame.arrayCards[i], yawQR: SIMD4(0, 0, 0, themed ? frame.arrayTheme[i] : 0))
+        }
         let cardInstances = frame.cards.map {
-            InstanceData(posTilt: SIMD4($0.position, $0.tilt), yawQR: SIMD4($0.yaw, $0.quality, $0.reveal, 0))
+            InstanceData(posTilt: SIMD4($0.position, $0.tilt), yawQR: SIMD4($0.yaw, $0.quality, $0.reveal, $0.theme))
         }
 
         // 1. Shadow map: only the diffuser plates cast shadows.
@@ -497,7 +505,7 @@ final class MetalRenderer {
         }
         func drawOpaque(_ e: MTLRenderCommandEncoder, capture: Bool = false) {
             if let a = frame.assembly { drawAssembly(e, a, transmissive: false, capture: capture); return }
-            var identity = InstanceData(posTilt: .zero, yawQR: .zero)
+            var identity = InstanceData(posTilt: .zero, yawQR: SIMD4(0, 0, 0, frame.themeAmount))
             e.setVertexBytes(&identity, length: MemoryLayout<InstanceData>.stride, index: 2)
             draw(floorMesh, on: e)
             for m in arrayMeshes where m.kind != .frost && (!capture || m.name != "Titanium_Fasteners") {
@@ -509,7 +517,7 @@ final class MetalRenderer {
                 for m in cardMeshes where m.kind != .frost && m.kind != .ivory { draw(m, on: e) }
             }
         }
-        let background = linearBackground(frame.background)
+        let background = linearBackground(frame.background, exposure: u.params.x)
         let clear = MTLClearColor(red: Double(background.x), green: Double(background.y),
                                   blue: Double(background.z), alpha: 1)
 
@@ -636,7 +644,7 @@ final class MetalRenderer {
     /// One assembly part, centred on the origin and spread along the card's thickness axis.
     private func assemblyInstance(_ part: String, _ a: AssemblyDraw) -> InstanceData {
         let offset = ViewerEngine.modelOffset + SIMD3<Float>(0, 0, ViewerEngine.depth(of: part) * a.spread)
-        return InstanceData(posTilt: SIMD4(offset, 0), yawQR: SIMD4(0, 1, a.clarity, 0))
+        return InstanceData(posTilt: SIMD4(offset, 0), yawQR: SIMD4(0, 1, a.clarity, a.theme))
     }
 
     private func drawAssembly(_ e: MTLRenderCommandEncoder, _ a: AssemblyDraw, transmissive: Bool, capture: Bool = false) {

@@ -16,6 +16,11 @@ final class ArchiveEngine {
     private var arrayTilt: [Float] = []
     private var arrayShown: [Bool] = []
     private var arrayOffsets: [SIMD3<Float>] = []   // world position after track / rail shift
+    private var arrayTheme: [Float] = []
+    private var theme = ThemeWave()
+    static let lightBackground = SIMD3<Float>(231, 228, 223) / 255
+    static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
+    static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
 
     // Selection
     private(set) var selectedIndex = 0
@@ -95,7 +100,18 @@ final class ArchiveEngine {
         arrayTilt = Array(repeating: 0, count: cells.count)
         arrayShown = Array(repeating: true, count: cells.count)
         arrayOffsets = positions
+        arrayTheme = Array(repeating: 0, count: cells.count)
     }
+
+    /// Switch the colour theme; the materials follow card by card from the selected file.
+    func setTheme(dark: Bool, time: Double, immediate: Bool = false) {
+        lock.lock(); defer { lock.unlock() }
+        theme.set(dark: dark, time: time, origin: selectedCell, immediate: immediate || reduced)
+        wake()
+    }
+
+    /// Current background blend (0 light ... 1 dark).
+    var themeAmount: Float { lock.lock(); defer { lock.unlock() }; return theme.background(now) }
 
     // MARK: Layout helpers
 
@@ -192,6 +208,7 @@ final class ArchiveEngine {
         }
 
         pulses.removeAll { time - $0.time >= 3.2 }
+        theme.beginFrame()
         let aligningCopy = outgoing.contains { $0.returnY != nil }
         let idle = !reduced && idleDrift && targetReveal > 0 && !targetDetail && detail < 0.01
             && returnY == nil && !aligningCopy && time - lastInteraction > 2.5
@@ -256,7 +273,8 @@ final class ArchiveEngine {
             let slope = field(Float(o.cell.row) + 0.5, Float(o.cell.lane)) - field(Float(o.cell.row) - 0.5, Float(o.cell.lane))
             o.pose = CardDraw(position: v3(p.x - trackX, baseY + o.lift.value, p.z + entryZ + railZ),
                               tilt: slope * 0.024 * (1 - detail) * (1 - q), yaw: o.rotation,
-                              quality: q, reveal: o.clarity, labelIndex: o.labelIndex)
+                              quality: q, reveal: o.clarity, labelIndex: o.labelIndex,
+                              theme: theme.sample(o.cell, time))
             if o.lift.value < 0.0001, abs(o.rotation) < 0.0001 {
                 outgoing.remove(at: i)
             } else {
@@ -285,12 +303,14 @@ final class ArchiveEngine {
             arrayShown[i] = !hidden.contains(c)
             arrayOffsets[i] = v3(p.x - trackX, p.y + field(Float(c.row), Float(c.lane)), p.z + entryZ + railZ)
             arrayTilt[i] = slope * 0.024 * (1 - detail)
+            arrayTheme[i] = arrayShown[i] ? theme.sample(c, time) : theme.target
         }
         let selSlope = field(selRow + 0.5, selLane) - field(selRow - 0.5, selLane)
         let q = ease(lift.value / 0.4)
         selectedPose = CardDraw(position: v3(chosen.x - trackX, selectedBase + lift.value, chosen.z + entryZ + railZ),
                                 tilt: selSlope * 0.024 * (1 - detail) * (1 - q), yaw: rotation,
-                                quality: q, reveal: clarity, labelIndex: selectedIndex)
+                                quality: q, reveal: clarity, labelIndex: selectedIndex,
+                                theme: theme.sample(selectedCell, time))
 
         updateCamera(dt: dt)
 
@@ -385,8 +405,10 @@ final class ArchiveEngine {
 
         let renderedDistance = simd_distance(camPos, camAim)
         fovY = 2 * atan(span / (2 * distance))
-        fogNear = renderedDistance + lerp(2, -1, d)
-        fogFar = renderedDistance + lerp(18, 12, d)
+        // The dark mist starts closer and ends sooner while browsing (web: +1 / +16 against +5 / +25).
+        let th = theme.background(now)
+        fogNear = renderedDistance + lerp(lerp(2, 1, th), -1, d)
+        fogFar = renderedDistance + lerp(lerp(18, 16, th), 12, d)
         nearPlane = max(5, renderedDistance - 50)
         farPlane = renderedDistance + 60
         focusDistance = simd_distance(camPos, modelPos + v3(0, 2, 0))
@@ -408,6 +430,10 @@ final class ArchiveEngine {
         f.far = farPlane
         f.detail = detail
         f.time = Float(now)
+        let th = theme.background(now)
+        f.themeAmount = th
+        f.background = simd_mix(Self.lightBackground, Self.darkBackground, SIMD3(repeating: th))
+        f.fogColor = simd_mix(Self.lightBackground, Self.darkFog, SIMD3(repeating: th))
         // Cull cards that cannot contribute: outside the view, or fully fogged away.
         let viewProj = f.proj * f.view
         let corners: [SIMD3<Float>] = [
@@ -430,6 +456,7 @@ final class ArchiveEngine {
             }
             if outside.contains(true) || nearestDepth > fogFar { continue }
             f.arrayCards.append(SIMD4(p.x, p.y, p.z, arrayTilt[i]))
+            f.arrayTheme.append(arrayTheme[i])
         }
         f.cards = [selectedPose] + outgoing.map(\.pose)
         return f
@@ -526,6 +553,7 @@ final class ArchiveEngine {
         if !targetDetail && clarity > 0.001 { why.append("clarity↓") }
         if abs(rotation - targetRotation) > 0.0005 { why.append("rotation") }
         if cameraDelta > 0.01 { why.append("camera") }
+        if theme.active(at: now) { why.append("theme") }
         let liftTarget: Float = targetDetail ? Motion.inspectionLift : 0.4 * targetReveal
         if abs(lift.value - liftTarget) > 0.001 { why.append("liftTarget") }
         if abs(columnCamera.value - chosen.x) > 0.001 { why.append("column") }
@@ -537,5 +565,48 @@ final class ArchiveEngine {
         idleOnly = !moving && drifting
         let next = moving || drifting
         if next != isAnimating { isAnimating = next; onActivityChanged?(next) }
+    }
+}
+
+/// A material wave with a frozen origin and an interruptible per-card starting colour
+/// (web `theme-motion.ts`): rows lag 34 ms, lanes 110 ms, at most 600 ms; a card takes 580 ms,
+/// the background 850 ms.
+struct ThemeWave {
+    private(set) var target: Float = 0
+    private var start: Double = -10
+    private var origin = Cell(lane: 2, row: 12)
+    private var from: [Cell: Float] = [:]
+    private var latest: [Cell: Float] = [:]
+    private var backgroundFrom: Float = 0
+
+    private static func ease(_ t: Double) -> Float {
+        let t = Float(max(0, min(1, t)))
+        return t * t * (3 - 2 * t)
+    }
+
+    mutating func set(dark: Bool, time: Double, origin: Cell, immediate: Bool = false) {
+        let target: Float = dark ? 1 : 0
+        if target == self.target && !immediate { return }
+        backgroundFrom = immediate ? target : background(time)
+        from = immediate ? [:] : latest
+        self.target = target
+        start = immediate ? time - 10 : time
+        self.origin = origin
+    }
+
+    func background(_ time: Double) -> Float {
+        backgroundFrom + (target - backgroundFrom) * Self.ease((time - start) / 0.85)
+    }
+
+    func active(at time: Double) -> Bool { time - start < 0.85 + 0.6 + 0.58 }
+
+    mutating func beginFrame() { latest.removeAll(keepingCapacity: true) }
+
+    mutating func sample(_ cell: Cell, _ time: Double) -> Float {
+        let delay = min(0.6, Double(abs(cell.row - origin.row)) * 0.034 + Double(abs(cell.lane - origin.lane)) * 0.11)
+        let base = from[cell] ?? backgroundFrom
+        let value = base + (target - base) * Self.ease((time - start - delay) / 0.58)
+        latest[cell] = value
+        return value
     }
 }

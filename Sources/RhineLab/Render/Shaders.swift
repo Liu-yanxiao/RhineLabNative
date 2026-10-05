@@ -30,6 +30,7 @@ struct SurfaceMat {
     float4 p0;          // metalLow, metalHigh, transmissionLow, transmissionHigh
     float4 p1;          // thickness, attenuationDistance, ior, kind
     float4 atten;       // attenuation colour
+    float4 dark;        // albedo under the dark theme
 };
 
 struct VIn {
@@ -46,6 +47,7 @@ struct VOut {
     float h;
     float q [[flat]];
     float rev [[flat]];
+    float theme [[flat]];
     float2 axis;
 };
 
@@ -69,6 +71,7 @@ vertex VOut vs_main(VIn v [[stage_in]], uint iid [[instance_id]],
     o.h = v.pos.y / 3.7;
     o.q = inst.yawQR.y;
     o.rev = inst.yawQR.z;
+    o.theme = inst.yawQR.w;
     float3 up = R * float3(0, 1, 0);
     float3 mvUp = (f.view * float4(up, 0)).xyz;
     float viewZ = max(0.0001, abs((f.view * float4(world, 1)).z));
@@ -167,7 +170,7 @@ fragment float4 fs_surface(VOut in [[stage_in]], bool front [[front_facing]],
         float coverage = fract(52.9829189 * fract(dot(in.position.xy, float2(0.06711056, 0.00583715))));
         if (q <= coverage) discard_fragment();
     }
-    float3 albedo = mix(m.colorLow.rgb, m.colorHigh.rgb, q);
+    float3 albedo = mix(mix(m.colorLow.rgb, m.colorHigh.rgb, q), m.dark.rgb, in.theme);
     float rough = mix(m.colorLow.a, m.colorHigh.a, q);
     float metal = mix(m.p0.x, m.p0.y, q);
     float3 N = normalize(in.wn);
@@ -199,6 +202,9 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float g = smoothstep(0.1, 1.0, clamp(in.h, 0.0, 1.0));
     float3 gradient = mix(float3(0.40, 0.30, 0.20), float3(1.0, 0.98, 0.94), g);
     albedo *= mix(float3(1.0), gradient, tintAmount);
+    // Dark theme: smoke-grey shell; the cleared cover tends towards a cool near-white tint.
+    float3 darkAlbedo = frost ? mix(m.dark.rgb, float3(0.92, 0.96, 0.97), clearing) : m.dark.rgb;
+    albedo = mix(albedo, darkAlbedo, in.theme);
 
     float rough;
     float transmission = mix(m.p0.z, m.p0.w, q);
@@ -258,6 +264,10 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
 fragment float4 fs_label(VOut in [[stage_in]], constant Frame &f [[buffer(1)]], texture2d<float> tex [[texture(2)]]) {
     constexpr sampler s(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge, max_anisotropy(8));
     float4 c = tex.sample(s, in.uv);
+    // Dark theme inverts the print: dark paper, light ink.
+    float lum = dot(c.rgb, float3(0.2126, 0.7152, 0.0722));
+    float3 inverted = mix(float3(0.023, 0.032, 0.037), float3(0.78, 0.78, 0.71), 1.0 - smoothstep(0.12, 0.65, lum));
+    c.rgb = mix(c.rgb, inverted, in.theme);
     return float4(c.rgb, c.a * in.q);
 }
 

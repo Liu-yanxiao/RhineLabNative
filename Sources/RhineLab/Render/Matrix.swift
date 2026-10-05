@@ -41,6 +41,7 @@ struct CardDraw {
     var quality: Float      // 0 = resting in the array, 1 = extracted
     var reveal: Float       // glass-clearing sweep, 0 frosted ... 1 clear
     var labelIndex: Int
+    var theme: Float = 0    // 0 light materials ... 1 dark materials
 }
 
 /// The exploded assembly shown by the 360° viewer instead of the archive.
@@ -48,6 +49,7 @@ struct AssemblyDraw {
     var spread: Float       // 0 = assembled, 1 = parts spread along the thickness axis
     var clarity: Float      // 0 = frosted cover, 1 = clear
     var labelIndex: Int
+    var theme: Float = 0
 }
 
 struct RenderFrame {
@@ -58,11 +60,17 @@ struct RenderFrame {
     var fogFar: Float = 1
     /// xyz = position, w = tilt about X, one per visible array card.
     var arrayCards: [SIMD4<Float>] = []
+    /// Dark-theme amount per array card, parallel to `arrayCards` (empty = all light).
+    var arrayTheme: [Float] = []
     var cards: [CardDraw] = []
     /// When set, the assembly is drawn alone (no floor, array or extracted cards).
     var assembly: AssemblyDraw? = nil
-    /// Background and fog colour as displayed (sRGB 0...1); the renderer solves the linear value.
+    /// Background colour as displayed (sRGB 0...1); the renderer solves the linear value.
     var background = SIMD3<Float>(231, 228, 223) / 255
+    /// Fog colour as displayed; nil follows the background.
+    var fogColor: SIMD3<Float>? = nil
+    /// Dark-theme amount for lighting, exposure and the floor (0 light ... 1 dark).
+    var themeAmount: Float = 0
     var focusDistance: Float = 100
     var depthOfField: Float = 0     // 0 = off, 1 = original lens
     var near: Float = 10

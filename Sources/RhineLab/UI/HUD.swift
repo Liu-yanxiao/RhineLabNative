@@ -13,6 +13,8 @@ extension View {
 }
 
 struct BrandHeader: View {
+
+    @Environment(\.palette) private var pal
     private let positions: [CGFloat] = [2, 28, 55, 81, 103, 129, 154, 166]
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -28,12 +30,14 @@ struct BrandHeader: View {
                 Text("OS").font(Theme.font(35, .bold)).tracking(3)
             }.frame(width: 270, height: 40)
         }
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
         .frame(width: 270, alignment: .leading)
     }
 }
 
 struct SystemNav: View {
+
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     var body: some View {
         HStack(spacing: 43) {
@@ -42,7 +46,7 @@ struct SystemNav: View {
                     MagnifierGlyph(size: 23)
                     Text("ARCHIVE INDEX")
                     Text("/").font(Theme.font(11)).frame(minWidth: 19, minHeight: 21)
-                        .overlay(Rectangle().stroke(Theme.faint.opacity(0.6), lineWidth: 1)).padding(.leading, 6)
+                        .overlay(Rectangle().stroke(pal.muted.opacity(0.6), lineWidth: 1)).padding(.leading, 6)
                 }
             }
             NavButton(action: { model.present(.saved) }) {
@@ -54,24 +58,27 @@ struct SystemNav: View {
             NavButton(action: { model.present(.settings) }) { Text("◷").font(.system(size: 18)) }
         }
         .font(Theme.font(14)).tracking(0.7)
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
     }
 }
 
 struct NavButton<Label: View>: View {
+
+    @Environment(\.palette) private var pal
     let action: () -> Void
     @ViewBuilder let label: Label
     @State private var hovering = false
     var body: some View {
         Button(action: action) { label.frame(minHeight: 28) }
             .buttonStyle(.plain)
-            .foregroundStyle(hovering ? Theme.accent : Theme.ink)
+            .foregroundStyle(hovering ? pal.accent : pal.ink)
             .onHover { hovering = $0 }
     }
 }
 
 /// Everything shown over the archive array.
 struct ArchiveHUD: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     @State private var hoverTitle = false
 
@@ -87,7 +94,7 @@ struct ArchiveHUD: View {
                     Text("／").tracking(1.3)
                     RollingText(text: r.category, animated: animate)
                 }
-                .font(Theme.font(12)).foregroundStyle(Theme.muted).padding(.bottom, 22)
+                .font(Theme.font(12)).foregroundStyle(pal.muted).padding(.bottom, 22)
 
                 Button { model.open() } label: {
                     HStack(spacing: 10) {
@@ -105,8 +112,8 @@ struct ArchiveHUD: View {
                 .animation(.easeOut(duration: 0.3), value: hoverTitle)
 
                 ZStack(alignment: .leading) {
-                    Rectangle().fill(Color(red: 0.31, green: 0.29, blue: 0.255)).frame(height: 1)
-                    Rectangle().fill(Theme.dark).frame(width: 6, height: 6).offset(x: -61)
+                    Rectangle().fill(pal.line).frame(height: 1)
+                    Rectangle().fill(pal.ink).frame(width: 6, height: 6).offset(x: -61)
                 }.padding(.leading, 57).padding(.top, 55)
 
                 HStack {
@@ -121,13 +128,13 @@ struct ArchiveHUD: View {
                 }
                 .buttonStyle(.plain).padding(.leading, 58).padding(.top, 58)
             }
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(pal.ink)
             .frame(width: 950, alignment: .leading)
             .offset(x: 970, y: 471)
 
             if let h = model.hover {
                 Text("X-\(Archive.records[h].id.dropFirst(2)) / \(Archive.records[h].title)")
-                    .font(Theme.font(13)).tracking(1).foregroundStyle(Color(red: 0.435, green: 0.404, blue: 0.357))
+                    .font(Theme.font(13)).tracking(1).foregroundStyle(pal.muted)
                     .place(left: 60, bottom: 264)
             }
 
@@ -137,12 +144,12 @@ struct ArchiveHUD: View {
                 HStack(alignment: .firstTextBaseline, spacing: 21) {
                     Text(String(format: "%02d", (files.firstIndex(of: model.selected) ?? 0) + 1))
                         .font(Theme.font(58)).contentTransition(.numericText())
-                    Text("/").font(Theme.font(32, .light)).foregroundStyle(Color(red: 0.56, green: 0.54, blue: 0.5))
-                    Text(String(format: "%02d", files.count)).font(Theme.font(22)).foregroundStyle(Color(hex: 0x726f67))
+                    Text("/").font(Theme.font(32, .light)).foregroundStyle(pal.muted)
+                    Text(String(format: "%02d", files.count)).font(Theme.font(22)).foregroundStyle(pal.muted)
                 }
             }
             .animation(.easeOut(duration: 0.46), value: model.selected)
-            .foregroundStyle(Theme.ink).place(left: 60, bottom: 115)
+            .foregroundStyle(pal.ink).place(left: 60, bottom: 115)
 
             // ↑ ticks ↓
             HStack(spacing: 33) {
@@ -158,7 +165,7 @@ struct ArchiveHUD: View {
                 }.animation(.easeOut(duration: 0.4), value: model.selected)
                 ArrowButton(glyph: "↓", size: 28) { model.stepFile(1) }
             }
-            .foregroundStyle(Theme.ink).place(left: 504, bottom: 131)
+            .foregroundStyle(pal.ink).place(left: 504, bottom: 131)
 
             ColumnNavigation().place(left: 1005, bottom: 131)
 
@@ -166,7 +173,7 @@ struct ArchiveHUD: View {
             HStack(spacing: 6) {
                 Text("← →"); Text("切换列"); Text("／"); Text("↑ ↓"); Text("前后档案"); Text("／"); Text("ENTER"); Text("读取")
             }
-            .font(Theme.font(10)).tracking(0.9).foregroundStyle(Theme.faint)
+            .font(Theme.font(10)).tracking(0.9).foregroundStyle(pal.muted)
             .place(left: 505, bottom: 60)
         }
     }
@@ -174,6 +181,7 @@ struct ArchiveHUD: View {
 
 /// One tick in the file strip: grows when selected, tints and lengthens on hover.
 private struct FileTick: View {
+    @Environment(\.palette) private var pal
     let selected: Bool
     let action: () -> Void
     @State private var hovering = false
@@ -181,7 +189,7 @@ private struct FileTick: View {
     var body: some View {
         Button(action: action) {
             Rectangle()
-                .fill(selected ? Theme.dark : (hovering ? Color(hex: 0xa27849) : Color(hex: 0xaaa59a)))
+                .fill(selected ? pal.ink : (hovering ? pal.accent : pal.line))
                 .frame(width: 2, height: selected ? 33 : (hovering ? 24 : 12))
                 .frame(width: 14, height: 40)
                 .contentShape(Rectangle())
@@ -194,6 +202,7 @@ private struct FileTick: View {
 
 /// ← COLUMN 03 / 05 · name →
 private struct ColumnNavigation: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
 
     var body: some View {
@@ -205,43 +214,47 @@ private struct ColumnNavigation: View {
                     Text(String(format: "%02d", model.lane + 1)).contentTransition(.numericText())
                     Text(String(format: " / %02d", Archive.columns.count))
                 }
-                .font(Theme.font(10)).tracking(1.2).foregroundStyle(Color(hex: 0x726f67))
+                .font(Theme.font(10)).tracking(1.2).foregroundStyle(pal.muted)
                 RollingText(text: Archive.columns[model.lane], animated: !model.reduced).font(Theme.font(15))
             }
             .frame(minWidth: 140, alignment: .leading)
             ArrowButton(glyph: "→", size: 24) { model.stepColumn(1) }
         }
         .animation(.easeOut(duration: 0.46), value: model.selected)
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
     }
 }
 
 struct SystemFooter: View {
+
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: 44) {
                 HStack(spacing: 10) {
-                    Rectangle().fill(Color(red: 0.467, green: 0.482, blue: 0.376)).frame(width: 5, height: 5)
+                    Rectangle().fill(pal.statusLight).frame(width: 5, height: 5)
                     Text("SESSION AUTHORIZED")
                 }
                 Spacer()
                 Text("JOYCE MOORE ／ \(context.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits)))")
                 Button { model.replay() } label: { Text("REINITIALIZE ↗") }.buttonStyle(.plain)
             }
-            .font(Theme.font(10)).tracking(0.9).foregroundStyle(Color(red: 0.47, green: 0.467, blue: 0.431))
+            .font(Theme.font(10)).tracking(0.9).foregroundStyle(pal.muted)
         }
         .padding(.horizontal, 59).place(bottom: 35)
     }
 }
 
 struct PoweredBy: View {
+
+    @Environment(\.palette) private var pal
     var body: some View {
         HStack(spacing: 5) {
             Text("POWERED BY"); Text("RHINE LAB").font(Theme.font(19, .bold))
-            Rectangle().fill(Theme.ink).frame(width: 18, height: 3).padding(.leading, 6)
+            Rectangle().fill(pal.ink).frame(width: 18, height: 3).padding(.leading, 6)
         }
-        .font(Theme.font(19)).foregroundStyle(Theme.ink)
+        .font(Theme.font(19)).foregroundStyle(pal.ink)
         .place(right: 59, bottom: 108)
     }
 }

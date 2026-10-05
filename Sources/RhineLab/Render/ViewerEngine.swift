@@ -22,6 +22,10 @@ final class ViewerEngine {
     static let minDistance: Float = 5, maxDistance: Float = 28, maxFocusRadius: Float = 5
     static let initialPosition = SIMD3<Float>(7.2, 3.8, 12)
     static let background = SIMD3<Float>(0xea, 0xe5, 0xe1) / 255
+    static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
+    static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
+    /// 0 light ... 1 dark, set when the study opens (the theme cannot change while it is open).
+    var theme: Float = 0
 
     /// Camera pose about the focus point (three.js Spherical: phi from +Y, theta about Y from +Z).
     struct Spherical {
@@ -274,8 +278,10 @@ final class ViewerEngine {
         f.near = Self.near
         f.far = Self.far
         f.effectsOff = 6        // ambient occlusion and depth of field are array-only effects
-        f.background = Self.background
-        f.assembly = AssemblyDraw(spread: spread.value, clarity: clarity.value, labelIndex: labelIndex)
+        f.themeAmount = theme
+        f.background = simd_mix(Self.background, Self.darkBackground, SIMD3(repeating: theme))
+        f.fogColor = simd_mix(Self.background, Self.darkFog, SIMD3(repeating: theme))
+        f.assembly = AssemblyDraw(spread: spread.value, clarity: clarity.value, labelIndex: labelIndex, theme: theme)
         f.time = Float(now)
         return f
     }

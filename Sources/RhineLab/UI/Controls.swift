@@ -39,6 +39,7 @@ struct CloseGlyph: View {
 
 /// Outlined key label ("/", "ESC").
 struct KeyCap: View {
+    @Environment(\.palette) private var pal
     let label: String
     var width: CGFloat? = nil
     var height: CGFloat = 21
@@ -48,13 +49,14 @@ struct KeyCap: View {
         Text(label).font(Theme.font(size))
             .frame(width: width, height: height)
             .frame(minWidth: 19)
-            .overlay(Rectangle().stroke(Color(hex: 0xa6a49c), lineWidth: 1))
+            .overlay(Rectangle().stroke(pal.line, lineWidth: 1))
             .opacity(0.6)
     }
 }
 
 /// 46 × 46 arrow button that fills with warm sand on hover.
 struct ArrowButton: View {
+    @Environment(\.palette) private var pal
     let glyph: String
     let size: CGFloat
     let action: () -> Void
@@ -64,7 +66,7 @@ struct ArrowButton: View {
         Button(action: action) {
             Text(glyph).font(Theme.font(size))
                 .frame(width: 46, height: 46)
-                .background(hovering ? Color(hex: 0xe4d5c1) : Color.clear)
+                .background(hovering ? pal.field : Color.clear)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -75,11 +77,12 @@ struct ArrowButton: View {
 
 /// Square on/off switch (50 × 24) in the dialog's olive tone.
 struct SquareSwitch: View {
+    @Environment(\.palette) private var pal
     let isOn: Bool
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Rectangle().fill(isOn ? Color(hex: 0x565c46) : Color(hex: 0xd3ccbf))
+            Rectangle().fill(isOn ? pal.switchOn : pal.field)
             Rectangle().fill(Color(hex: 0xf5f2e9)).frame(width: 16, height: 16).offset(x: isOn ? 30 : 4)
         }
         .frame(width: 50, height: 24)

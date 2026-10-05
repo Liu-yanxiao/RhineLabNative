@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     @Published var accessLog: [(id: String, time: String)] = []
     @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs() } }
     @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs() } }
+    @Published var dark = UserDefaults.standard.bool(forKey: "rhine-dark") { didSet { applyTheme() } }
     @Published var columnMemory: [Int]
     // 360° viewer
     @Published var viewerOpen = false
@@ -54,6 +55,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.viewerStatus = status }
         }
         applyPrefs()
+        applyTheme(immediate: true)
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             return MainActor.assumeIsolated { self.handle(event) ? nil : event }
@@ -67,6 +69,12 @@ final class AppModel: ObservableObject {
         engine.wake()
         UserDefaults.standard.set(reduced, forKey: "rhine-reduced")
         UserDefaults.standard.set(idleDrift, forKey: "rhine-idle")
+    }
+
+    private func applyTheme(immediate: Bool = false) {
+        UserDefaults.standard.set(dark, forKey: "rhine-dark")
+        engine.setTheme(dark: dark, time: now, immediate: immediate)
+        viewer.theme = dark ? 1 : 0
     }
 
     // MARK: Flow

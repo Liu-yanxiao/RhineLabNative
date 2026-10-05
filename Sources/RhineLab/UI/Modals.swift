@@ -3,6 +3,7 @@ import AppKit
 
 /// Archive index, saved list and settings, presented over a blurred backdrop.
 struct ModalHost: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
 
     // 300 ms in with a 12 pt rise, 200 ms out with an 8 pt drop.
@@ -12,7 +13,7 @@ struct ModalHost: View {
     var body: some View {
         ZStack {
             if let modal = model.modal {
-                Rectangle().fill(Color(hex: 0xe3e0d7, opacity: 0.45))
+                Rectangle().fill(pal.paper.opacity(model.dark ? 0.6 : 0.45))
                     .background(.ultraThinMaterial)
                     .contentShape(Rectangle())
                     .onTapGesture { model.dismissModal() }
@@ -34,6 +35,7 @@ struct ModalHost: View {
 
 /// The dialog sheet: top bar with the close button, then the panel's own content.
 private struct ModalFrame<Content: View>: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     let label: String
     var width: CGFloat = 1260
@@ -51,20 +53,22 @@ private struct ModalFrame<Content: View>: View {
             }
             .font(Theme.font(11)).tracking(1)
             .padding(.top, 35).padding(.bottom, 20)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xc2bdb1)).frame(height: 1) }
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
             content
         }
         .padding(.horizontal, 53)
         .padding(.bottom, height == nil ? 35 : 0)
         .frame(width: width, height: height, alignment: .top)
-        .foregroundStyle(Theme.ink)
-        .background(Color(hex: 0xedebe4, opacity: 0.97))
-        .overlay(Rectangle().stroke(Color(hex: 0xf7f5ee), lineWidth: 1))
-        .shadow(color: Color(hex: 0x63513a, opacity: 0.125), radius: 47, y: 26)
+        .foregroundStyle(pal.ink)
+        .background(pal.panel.opacity(0.97))
+        .overlay(Rectangle().stroke(pal.panelEdge, lineWidth: 1))
+        .shadow(color: pal.shadow, radius: 47, y: 26)
     }
 }
 
 private struct ModalTitle: View {
+
+    @Environment(\.palette) private var pal
     let title: String
     let subtitle: String
     var size: CGFloat = 38
@@ -72,7 +76,7 @@ private struct ModalTitle: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 23) {
             Text(title).font(Theme.font(size, .bold)).tracking(-0.6)
-            Text(subtitle).font(Theme.font(15)).tracking(2).foregroundStyle(Color(hex: 0x817a6c))
+            Text(subtitle).font(Theme.font(15)).tracking(2).foregroundStyle(pal.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 32).padding(.bottom, 29)
@@ -80,18 +84,22 @@ private struct ModalTitle: View {
 }
 
 private struct ModalFooter: View {
+
+    @Environment(\.palette) private var pal
     let left: String
     let right: AnyView
 
     var body: some View {
         HStack { Text(left); Spacer(); right }
-            .font(Theme.font(9)).tracking(1).foregroundStyle(Color(hex: 0x8d8575))
+            .font(Theme.font(9)).tracking(1).foregroundStyle(pal.muted)
     }
 }
 
 // MARK: Archive directory (search and saved list)
 
 private struct DirectoryRow: View {
+
+    @Environment(\.palette) private var pal
     let record: ArchiveRecord
     let saved: Bool
     let highlighted: Bool
@@ -106,34 +114,34 @@ private struct DirectoryRow: View {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(record.title).font(Theme.font(16))
                         Text(record.en).font(Theme.font(9)).tracking(0.7)
-                            .foregroundStyle(Color(hex: 0x9b907e)).padding(.top, 7)
+                            .foregroundStyle(pal.muted).padding(.top, 7)
                     }
-                    if saved { Text("＋").font(Theme.font(13)).foregroundStyle(Color(hex: 0xad9170)) }
+                    if saved { Text("＋").font(Theme.font(13)).foregroundStyle(pal.accent) }
                     Spacer(minLength: 0)
                 }
                 .padding(.trailing, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(record.department).font(Theme.font(12)).foregroundStyle(Color(hex: 0x7d7565))
+                Text(record.department).font(Theme.font(12)).foregroundStyle(pal.muted)
                     .frame(width: 230, alignment: .leading)
 
                 HStack(spacing: 12) {
                     Text(record.clearance == "RESTRICTED" ? "CATALOG ONLY" : "AUTHORIZED")
-                        .font(Theme.font(9)).tracking(0.5).foregroundStyle(Color(hex: 0x6b6d54))
+                        .font(Theme.font(9)).tracking(0.5).foregroundStyle(pal.muted)
                     Spacer(minLength: 0)
-                    Text("↗").font(Theme.font(24)).foregroundStyle(Color(hex: 0x343a29))
+                    Text("↗").font(Theme.font(24)).foregroundStyle(pal.ink)
                 }
                 .padding(.trailing, 30)
                 .frame(width: 175)
             }
             .padding(.trailing, 7)
             .frame(minHeight: 76)
-            .background((hovering || highlighted) ? Color(hex: 0xe2dccf) : Color.clear)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xd6d0c4)).frame(height: 1) }
+            .background((hovering || highlighted) ? pal.field : Color.clear)
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.25), value: hovering)
     }
@@ -141,6 +149,7 @@ private struct DirectoryRow: View {
 
 /// "Archive index" and "Saved archives" share one layout; the latter lists only saved files.
 private struct DirectoryPanel: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     let savedOnly: Bool
     @State private var query = ""
@@ -170,10 +179,10 @@ private struct DirectoryPanel: View {
                 ZStack(alignment: .leading) {
                     if query.isEmpty {
                         Text("输入档案编号、名称或科室").font(Theme.font(17)).tracking(0.5)
-                            .foregroundStyle(Color(hex: 0x9f988a)).allowsHitTesting(false)
+                            .foregroundStyle(pal.muted).allowsHitTesting(false)
                     }
                     TextField("", text: $query)
-                        .textFieldStyle(.plain).font(Theme.font(19)).foregroundStyle(Color(hex: 0x292b21))
+                        .textFieldStyle(.plain).font(Theme.font(19)).foregroundStyle(pal.ink)
                         .focused($focused)
                         .onSubmit { if list.indices.contains(cursor) { pick(list[cursor]) } }
                         .onChange(of: query) { _, _ in cursor = 0 }
@@ -183,7 +192,7 @@ private struct DirectoryPanel: View {
                 KeyCap(label: "ESC", width: 37, height: 24).padding(.trailing, 4)
             }
             .frame(height: 61)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0x3b3c30)).frame(height: 2) }
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.ink).frame(height: 2) }
 
             // Category filters
             HStack(spacing: 27) {
@@ -193,7 +202,7 @@ private struct DirectoryPanel: View {
                             Rectangle().frame(width: 4, height: 4).opacity(filter == c ? 1 : 0)
                             Text(c).font(Theme.font(12))
                         }
-                        .foregroundStyle(filter == c ? Color(hex: 0x1e2418) : Color(hex: 0x8c8373))
+                        .foregroundStyle(filter == c ? pal.ink : pal.muted)
                     }.buttonStyle(.plain)
                 }
                 Spacer(minLength: 0)
@@ -207,10 +216,10 @@ private struct DirectoryPanel: View {
                 Text("DEPARTMENT / 科室").frame(width: 230, alignment: .leading)
                 Text("ACCESS").frame(width: 175, alignment: .leading)
             }
-            .font(Theme.font(9)).tracking(1).foregroundStyle(Color(hex: 0x82796a))
+            .font(Theme.font(9)).tracking(1).foregroundStyle(pal.muted)
             .padding(.vertical, 14).padding(.trailing, 7)
-            .overlay(alignment: .top) { Rectangle().fill(Color(hex: 0xbfb7a7)).frame(height: 1) }
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xbfb7a7)).frame(height: 1) }
+            .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
 
             // Results
             ScrollViewReader { proxy in
@@ -242,14 +251,14 @@ private struct DirectoryPanel: View {
     private var emptyState: some View {
         let bare = savedOnly && query.isEmpty && filter == "全部档案"
         return VStack(spacing: 0) {
-            Text("∅").font(Theme.font(44, .light)).foregroundStyle(Color(hex: 0xa39b8a))
+            Text("∅").font(Theme.font(44, .light)).foregroundStyle(pal.muted)
             Text(bare ? "尚无收藏档案" : "没有匹配的档案").font(Theme.font(18)).padding(.top, 20)
             Text(bare ? "读取档案时，选择 SAVE ARCHIVE 将其保存在此处。" : "尝试其他名称、档案编号，或切换科室分类。")
-                .font(Theme.font(13)).foregroundStyle(Color(hex: 0x8b8271)).padding(.top, 15).padding(.bottom, 25)
+                .font(Theme.font(13)).foregroundStyle(pal.muted).padding(.top, 15).padding(.bottom, 25)
             if !bare {
                 Button { query = ""; filter = "全部档案"; cursor = 0 } label: {
                     Text(savedOnly ? "查看全部收藏 →" : "重置检索 →").font(Theme.font(12)).padding(.bottom, 8)
-                        .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0x8d826c)).frame(height: 1) }
+                        .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
                 }.buttonStyle(.plain)
             }
         }
@@ -264,6 +273,8 @@ private struct DirectoryPanel: View {
 // MARK: Settings
 
 private struct SettingRow: View {
+
+    @Environment(\.palette) private var pal
     let title: String
     let hint: String
     @Binding var isOn: Bool
@@ -273,21 +284,23 @@ private struct SettingRow: View {
             HStack {
                 VStack(alignment: .leading, spacing: 9) {
                     Text(title).font(Theme.font(12)).tracking(0.8)
-                    Text(hint).font(Theme.font(12)).foregroundStyle(Color(hex: 0x938977))
+                    Text(hint).font(Theme.font(12)).foregroundStyle(pal.muted)
                 }
                 Spacer()
                 SquareSwitch(isOn: isOn)
             }
             .padding(.vertical, 17)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color(hex: 0xd0c6b5)).frame(height: 1) }
+            .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Theme.ink)
+        .foregroundStyle(pal.ink)
     }
 }
 
 private struct Shortcut: View {
+
+    @Environment(\.palette) private var pal
     let keys: [String]
     let label: String
 
@@ -295,7 +308,7 @@ private struct Shortcut: View {
         HStack(spacing: 9) {
             ForEach(keys, id: \.self) { key in
                 Text(key).font(Theme.font(9)).padding(5)
-                    .overlay(Rectangle().stroke(Color(hex: 0xc9c1b2), lineWidth: 1))
+                    .overlay(Rectangle().stroke(pal.line, lineWidth: 1))
             }
             Text(label)
         }
@@ -303,6 +316,8 @@ private struct Shortcut: View {
 }
 
 private struct SettingsPanel: View {
+
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
 
     var body: some View {
@@ -310,18 +325,31 @@ private struct SettingsPanel: View {
             ModalTitle(title: "SYSTEM SETTINGS", subtitle: "终端偏好设置", size: 33)
 
             HStack(spacing: 18) { Text("JOYCE MOORE"); Text("·"); Text("SESSION AUTHORIZED") }
-                .font(Theme.font(10)).tracking(1).foregroundStyle(Color(hex: 0x87806f))
+                .font(Theme.font(10)).tracking(1).foregroundStyle(pal.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 20)
 
             VStack(spacing: 0) {
+                HStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("界面配色").font(Theme.font(14))
+                        Text("玻璃阵列随配色逐张过渡").font(Theme.font(12)).foregroundStyle(pal.muted)
+                    }
+                    Spacer()
+                    HStack(spacing: 6) {
+                        ThemeChoice(label: "亮色", pressed: !model.dark) { model.dark = false }
+                        ThemeChoice(label: "暗色", pressed: model.dark) { model.dark = true }
+                    }
+                }
+                .padding(.vertical, 16)
+                .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
                 SettingRow(title: "REDUCED MOTION", hint: "镜头与档案运动直接到位，降低 GPU 占用", isOn: $model.reduced)
                 SettingRow(title: "IDLE DRIFT", hint: "停在档案阵列时保留缓慢起伏；关闭后画面静止时完全不渲染", isOn: $model.idleDrift)
             }
-            .overlay(alignment: .top) { Rectangle().fill(Color(hex: 0xc1b8a7)).frame(height: 1) }
+            .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
 
             VStack(alignment: .leading, spacing: 19) {
-                Text("KEYBOARD CONTROLS").font(Theme.font(9)).tracking(1).foregroundStyle(Color(hex: 0x8e826f))
+                Text("KEYBOARD CONTROLS").font(Theme.font(9)).tracking(1).foregroundStyle(pal.muted)
                 HStack(spacing: 18) {
                     Shortcut(keys: ["←", "→"], label: "切列")
                     Shortcut(keys: ["↑", "↓"], label: "选档")
@@ -329,7 +357,7 @@ private struct SettingsPanel: View {
                     Shortcut(keys: ["/"], label: "检索")
                     Shortcut(keys: ["ESC"], label: "返回")
                 }
-                .font(Theme.font(11)).foregroundStyle(Color(hex: 0x776f60))
+                .font(Theme.font(11)).foregroundStyle(pal.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 26)
@@ -352,16 +380,37 @@ private struct SettingsPanel: View {
     }
 }
 
+private struct ThemeChoice: View {
+    @Environment(\.palette) private var pal
+    let label: String
+    let pressed: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label).font(Theme.font(13))
+                .frame(minWidth: 76, minHeight: 42)
+                .foregroundStyle(pressed ? pal.onSolid : pal.ink)
+                .background(pressed ? pal.solid : Color.clear)
+                .overlay(Rectangle().stroke(pal.line, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: Toast
 
 struct Toast: View {
+
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     var body: some View {
         if let message = model.toast {
             Text(message).font(Theme.font(14))
                 .padding(.horizontal, 27).padding(.vertical, 15)
-                .foregroundStyle(Color(red: 0.945, green: 0.937, blue: 0.875))
-                .background(Color(red: 0.188, green: 0.212, blue: 0.165))
+                .foregroundStyle(pal.onToast)
+                .background(pal.toast)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom).padding(.bottom, 85)
                 .transition(.opacity.combined(with: .offset(y: 15)))
         }

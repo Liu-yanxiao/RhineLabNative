@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Condensed opening sequence: white field → mark drawn → identity → permission → welcome.
 struct BootView: View {
+    @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     @State private var start = Date()
 
@@ -15,7 +16,7 @@ struct BootView: View {
             ZStack {
                 ZStack {
                     BootBackdrop()
-                    Rectangle().fill(Color.white).opacity(t < 0.6 ? 1 : 0)
+                    Rectangle().fill(pal.flash).opacity(t < 0.6 ? 1 : 0)
                         .animation(.easeOut(duration: 0.6), value: t < 0.6)
                 }
                 .opacity(1 - ease(span(t, 6.5, total)))
@@ -32,31 +33,31 @@ struct BootView: View {
                         .font(Theme.font(14)).tracking(0.6).offset(x: 936, y: 520)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .foregroundStyle(Theme.ink).opacity(1 - ease(span(t, 4.0, 4.5)))
+                .foregroundStyle(pal.ink).opacity(1 - ease(span(t, 4.0, 4.5)))
 
                 // Permission scan
                 let scan = span(t, 4.2, 6.4)
                 ZStack {
-                    Circle().stroke(Theme.ink, lineWidth: 2).frame(width: 300, height: 300).scaleEffect(0.6 + 0.4 * ease(span(t, 4.2, 5.0)))
-                    Circle().trim(from: 0, to: ease(span(t, 4.2, 5.2))).stroke(Theme.ink, lineWidth: 2)
+                    Circle().stroke(pal.ink, lineWidth: 2).frame(width: 300, height: 300).scaleEffect(0.6 + 0.4 * ease(span(t, 4.2, 5.0)))
+                    Circle().trim(from: 0, to: ease(span(t, 4.2, 5.2))).stroke(pal.ink, lineWidth: 2)
                         .frame(width: 220, height: 220).rotationEffect(.degrees(scan * 540))
                     ForEach(0..<2, id: \.self) { i in
                         Circle().fill(Color(red: 0.929, green: 0.51, blue: 0.106)).frame(width: 16, height: 16)
                             .offset(y: -150).rotationEffect(.degrees(scan * 720 + Double(i) * 180))
                     }
-                    Circle().fill(Theme.ink).frame(width: 10, height: 10)
+                    Circle().fill(pal.ink).frame(width: 10, height: 10)
                     Text("PERMISSION AUTHORIZED").font(Theme.font(14)).tracking(1.5).offset(y: 210)
                 }
-                .foregroundStyle(Theme.ink)
+                .foregroundStyle(pal.ink)
                 .opacity(ease(span(t, 4.2, 4.7)) * (1 - ease(span(t, 5.9, 6.4))))
 
                 // Welcome
                 VStack(spacing: 14) {
                     Text("WELCOME TO").font(Theme.font(18)).tracking(3)
                     Text("RHINE LAB.LLC.").font(Theme.font(54, .bold)).tracking(2)
-                    Text("INTERNAL DATABASE").font(Theme.font(14)).tracking(2.4).foregroundStyle(Theme.muted)
+                    Text("INTERNAL DATABASE").font(Theme.font(14)).tracking(2.4).foregroundStyle(pal.muted)
                 }
-                .foregroundStyle(Theme.ink).offset(y: 40 * (1 - ease(span(t, 5.9, 6.6))))
+                .foregroundStyle(pal.ink).offset(y: 40 * (1 - ease(span(t, 5.9, 6.6))))
                 .opacity(ease(span(t, 5.9, 6.5)) * (1 - ease(span(t, 6.8, total))))
             }
             .onChange(of: t >= total) { _, done in if done { model.finishBoot() } }
@@ -70,6 +71,7 @@ struct BootView: View {
 
 /// The mark drawn as one continuous stroke, then its + and − glyphs.
 private struct BootMark: View {
+    @Environment(\.palette) private var pal
     let progress: Double
     let symbols: Double
     var body: some View {
@@ -77,10 +79,10 @@ private struct BootMark: View {
             let sx = size.width / Logo.viewBox.width, sy = size.height / Logo.viewBox.height
             let t = CGAffineTransform(scaleX: sx, y: sy)
             let contour = Path(BootMark.contour).trimmedPath(from: 0, to: progress).applying(t)
-            context.stroke(contour, with: .color(Theme.ink), lineWidth: 26 * sx)
+            context.stroke(contour, with: .color(pal.ink), lineWidth: 26 * sx)
             var glyph = context
             glyph.opacity = symbols
-            glyph.stroke(Path(Logo.symbols()).applying(t), with: .color(Theme.ink), lineWidth: 15 * sx)
+            glyph.stroke(Path(Logo.symbols()).applying(t), with: .color(pal.ink), lineWidth: 15 * sx)
         }
     }
 
@@ -106,12 +108,13 @@ private struct BootMark: View {
 
 /// Warm grey field with the faint white contour lines and ring of the original opening.
 private struct BootBackdrop: View {
+    @Environment(\.palette) private var pal
     var body: some View {
         ZStack {
             RadialGradient(stops: [
-                .init(color: Color(hex: 0xe7e7e1), location: 0),
-                .init(color: Color(hex: 0xe3e1dc), location: 0.76),
-                .init(color: Color(hex: 0xe4dfdb), location: 1)],
+                .init(color: pal.bootInner, location: 0),
+                .init(color: pal.bootOuter, location: 0.76),
+                .init(color: pal.bootRim, location: 1)],
                            center: UnitPoint(x: 0.51, y: 0.48), startRadius: 0, endRadius: 1300)
             Canvas { context, _ in
                 func curve(_ p: inout Path, _ c1x: CGFloat, _ c1y: CGFloat, _ c2x: CGFloat, _ c2y: CGFloat, _ x: CGFloat, _ y: CGFloat) {
@@ -130,10 +133,10 @@ private struct BootBackdrop: View {
                 curve(&right, 1531, 478, 1371, 367, 1431, 480)
                 curve(&right, 1491, 593, 1692, 666, 1559, 787)
                 curve(&right, 1426, 908, 1329, 886, 1498, 1130)
-                for path in [left, right] { context.stroke(path, with: .color(.white), lineWidth: 3) }
+                for path in [left, right] { context.stroke(path, with: .color(pal.contour), lineWidth: 3) }
                 for r in [346.0, 348.0] {
                     context.stroke(Path(ellipseIn: CGRect(x: 1450 - r, y: 648 - r, width: r * 2, height: r * 2)),
-                                   with: .color(.white), lineWidth: 3)
+                                   with: .color(pal.contour), lineWidth: 3)
                 }
             }
             .opacity(0.09).blur(radius: 3)
