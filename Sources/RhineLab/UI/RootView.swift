@@ -38,17 +38,34 @@ private struct Stage: View {
             }
             if model.mode == .archive { ArchiveHUD().transition(.opacity) }
             if model.mode == .detail { DetailView().transition(.opacity.animation(.easeOut(duration: 0.5).delay(0.6))) }
-            if model.mode == .boot {
-                Button { model.finishBoot() } label: {
-                    HStack(spacing: 10) { Text("ENTER SYSTEM"); Text("↗") }.font(Theme.font(12)).tracking(1)
-                }
-                .buttonStyle(.plain).foregroundStyle(Theme.ink).place(right: 59, top: 124)
-            }
+            if model.mode == .boot { SkipButton().place(right: 60, top: 121).transition(.opacity) }
             ModalHost()
             Toast()
         }
         .animation(ease, value: model.mode)
         .animation(ease, value: model.modal)
         .animation(ease, value: model.toast)
+    }
+}
+
+/// "ENTER SYSTEM ↗" shown while the opening plays; dim until hovered.
+private struct SkipButton: View {
+    @EnvironmentObject var model: AppModel
+    @State private var hovering = false
+
+    var body: some View {
+        Button { model.finishBoot() } label: {
+            HStack(spacing: 28) {
+                Text("ENTER SYSTEM").font(Theme.font(14)).tracking(1.1)
+                Text("↗").font(Theme.font(23))
+            }
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.ink)
+        .opacity(hovering ? 1 : 0.55)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.2), value: hovering)
     }
 }

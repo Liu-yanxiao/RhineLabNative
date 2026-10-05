@@ -13,9 +13,12 @@ struct BootView: View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSince(start)
             ZStack {
-                Rectangle().fill(t < 0.6 ? Color.white : Color(red: 0.93, green: 0.92, blue: 0.9))
-                    .opacity(1 - ease(span(t, 6.5, total)))
-                    .animation(.easeOut(duration: 0.6), value: t < 0.6)
+                ZStack {
+                    BootBackdrop()
+                    Rectangle().fill(Color.white).opacity(t < 0.6 ? 1 : 0)
+                        .animation(.easeOut(duration: 0.6), value: t < 0.6)
+                }
+                .opacity(1 - ease(span(t, 6.5, total)))
 
                 // Identity: drawn mark + status line
                 ZStack(alignment: .topLeading) {
@@ -99,4 +102,41 @@ private struct BootMark: View {
         p.closeSubpath()
         return p
     }()
+}
+
+/// Warm grey field with the faint white contour lines and ring of the original opening.
+private struct BootBackdrop: View {
+    var body: some View {
+        ZStack {
+            RadialGradient(stops: [
+                .init(color: Color(hex: 0xe7e7e1), location: 0),
+                .init(color: Color(hex: 0xe3e1dc), location: 0.76),
+                .init(color: Color(hex: 0xe4dfdb), location: 1)],
+                           center: UnitPoint(x: 0.51, y: 0.48), startRadius: 0, endRadius: 1300)
+            Canvas { context, _ in
+                func curve(_ p: inout Path, _ c1x: CGFloat, _ c1y: CGFloat, _ c2x: CGFloat, _ c2y: CGFloat, _ x: CGFloat, _ y: CGFloat) {
+                    p.addCurve(to: CGPoint(x: x, y: y), control1: CGPoint(x: c1x, y: c1y), control2: CGPoint(x: c2x, y: c2y))
+                }
+                var left = Path()
+                left.move(to: CGPoint(x: -210, y: 705))
+                curve(&left, -45, 705, 182, 704, 247, 567)
+                curve(&left, 337, 377, 99, 306, 4, 435)
+                curve(&left, -91, 564, 27, 680, 169, 631)
+                curve(&left, 309, 584, 227, 314, 279, 111)
+                curve(&left, 331, -92, 568, -113, 568, -113)
+                var right = Path()
+                right.move(to: CGPoint(x: 1560, y: -80))
+                curve(&right, 1374, 114, 1671, 168, 1601, 323)
+                curve(&right, 1531, 478, 1371, 367, 1431, 480)
+                curve(&right, 1491, 593, 1692, 666, 1559, 787)
+                curve(&right, 1426, 908, 1329, 886, 1498, 1130)
+                for path in [left, right] { context.stroke(path, with: .color(.white), lineWidth: 3) }
+                for r in [346.0, 348.0] {
+                    context.stroke(Path(ellipseIn: CGRect(x: 1450 - r, y: 648 - r, width: r * 2, height: r * 2)),
+                                   with: .color(.white), lineWidth: 3)
+                }
+            }
+            .opacity(0.09).blur(radius: 3)
+        }
+    }
 }

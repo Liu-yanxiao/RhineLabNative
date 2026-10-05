@@ -39,7 +39,7 @@ struct SystemNav: View {
         HStack(spacing: 43) {
             NavButton(action: { model.present(.search) }) {
                 HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .regular))
+                    MagnifierGlyph(size: 23)
                     Text("ARCHIVE INDEX")
                     Text("/").font(Theme.font(11)).frame(minWidth: 19, minHeight: 21)
                         .overlay(Rectangle().stroke(Theme.faint.opacity(0.6), lineWidth: 1)).padding(.leading, 6)
@@ -138,26 +138,29 @@ struct ArchiveHUD: View {
                     Text(String(format: "%02d", (files.firstIndex(of: model.selected) ?? 0) + 1))
                         .font(Theme.font(58)).contentTransition(.numericText())
                     Text("/").font(Theme.font(32, .light)).foregroundStyle(Color(red: 0.56, green: 0.54, blue: 0.5))
-                    Text(String(format: "%02d", files.count)).font(Theme.font(58))
+                    Text(String(format: "%02d", files.count)).font(Theme.font(22)).foregroundStyle(Color(hex: 0x726f67))
                 }
             }
+            .animation(.easeOut(duration: 0.46), value: model.selected)
             .foregroundStyle(Theme.ink).place(left: 60, bottom: 115)
 
             // ↑ ticks ↓
             HStack(spacing: 33) {
-                Button { model.stepFile(-1) } label: { Text("↑").font(Theme.font(22)) }.buttonStyle(.plain)
+                ArrowButton(glyph: "↑", size: 28) { model.stepFile(-1) }
                 HStack(spacing: 12) {
                     ForEach(files, id: \.self) { index in
-                        Button { model.select(index, navigation: .row(files.firstIndex(of: index)! > (files.firstIndex(of: model.selected) ?? 0) ? 1 : -1)) } label: {
-                            Rectangle().fill(index == model.selected ? Theme.dark : Color(red: 0.667, green: 0.647, blue: 0.604))
-                                .frame(width: 2, height: index == model.selected ? 33 : 12)
-                                .frame(width: 14, height: 40)
-                        }.buttonStyle(.plain)
+                        FileTick(selected: index == model.selected) {
+                            let target = files.firstIndex(of: index) ?? 0
+                            let current = files.firstIndex(of: model.selected) ?? 0
+                            model.select(index, navigation: .row(target > current ? 1 : -1))
+                        }
                     }
                 }.animation(.easeOut(duration: 0.4), value: model.selected)
-                Button { model.stepFile(1) } label: { Text("↓").font(Theme.font(22)) }.buttonStyle(.plain)
+                ArrowButton(glyph: "↓", size: 28) { model.stepFile(1) }
             }
             .foregroundStyle(Theme.ink).place(left: 504, bottom: 131)
+
+            ColumnNavigation().place(left: 1005, bottom: 131)
 
             // Key hints
             HStack(spacing: 6) {
@@ -166,6 +169,50 @@ struct ArchiveHUD: View {
             .font(Theme.font(10)).tracking(0.9).foregroundStyle(Theme.faint)
             .place(left: 505, bottom: 60)
         }
+    }
+}
+
+/// One tick in the file strip: grows when selected, tints and lengthens on hover.
+private struct FileTick: View {
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Rectangle()
+                .fill(selected ? Theme.dark : (hovering ? Color(hex: 0xa27849) : Color(hex: 0xaaa59a)))
+                .frame(width: 2, height: selected ? 33 : (hovering ? 24 : 12))
+                .frame(width: 14, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.4), value: hovering)
+    }
+}
+
+/// ← COLUMN 03 / 05 · name →
+private struct ColumnNavigation: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 24) {
+            ArrowButton(glyph: "←", size: 24) { model.stepColumn(-1) }
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 0) {
+                    Text("COLUMN ")
+                    Text(String(format: "%02d", model.lane + 1)).contentTransition(.numericText())
+                    Text(String(format: " / %02d", Archive.columns.count))
+                }
+                .font(Theme.font(10)).tracking(1.2).foregroundStyle(Color(hex: 0x726f67))
+                RollingText(text: Archive.columns[model.lane], animated: !model.reduced).font(Theme.font(15))
+            }
+            .frame(minWidth: 140, alignment: .leading)
+            ArrowButton(glyph: "→", size: 24) { model.stepColumn(1) }
+        }
+        .animation(.easeOut(duration: 0.46), value: model.selected)
+        .foregroundStyle(Theme.ink)
     }
 }
 
