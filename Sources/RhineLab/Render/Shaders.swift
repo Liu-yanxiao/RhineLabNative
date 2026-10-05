@@ -381,11 +381,13 @@ fragment float4 fs_composite(FSOut in [[stage_in]], constant Frame &f [[buffer(1
     }
     if (!(int(f.post.z) & 2)) {
         float2 aoTexel = 1.0 / float2(aoTex.get_width(), aoTex.get_height());
+        // 5 × 5 box over the half-resolution occlusion: wide enough to hide the sampling pattern
+        // on large flat faces seen at grazing angles.
         float ao = 0;
-        for (int y = -1; y <= 1; y++) {
-            for (int x = -1; x <= 1; x++) { ao += aoTex.sample(s, in.uv + float2(x, y) * aoTexel).r; }
+        for (int y = -2; y <= 2; y++) {
+            for (int x = -2; x <= 2; x++) { ao += aoTex.sample(s, in.uv + float2(x, y) * aoTexel).r; }
         }
-        c *= ao / 9.0;
+        c *= ao / 25.0;
     }
     c = acesFilmic(c, f.params.x);
     c = srgbEncode(c);
