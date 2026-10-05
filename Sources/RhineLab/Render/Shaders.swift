@@ -294,7 +294,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
         // through from behind. Vertical faces only, so the tops keep their direct lighting.
         float topLeak = exp(-(1.0 - clamp(in.h, 0.0, 1.0)) * f.keyColor.w);
         float backlit = saturate(-dot(N, f.keyDir.xyz));
-        float3 scatterTint = mix(attenColor, float3(1.0), 0.4);
+        float3 scatterTint = mix(attenColor, float3(1.0), 0.6);
         float3 glow = f.keyColor.rgb * scatterTint * albedo * (0.65 * topLeak + 0.35 * backlit)
                     * (1.0 - saturate(N.y)) * f.post.w * (1.0 - clearing);
         color += glow;
