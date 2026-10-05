@@ -9,6 +9,7 @@ struct SurfaceMat {
     var p1 = SIMD4<Float>(0.1, 1e9, 1.46, 0)     // thickness, attenuation distance, ior, kind
     var atten = SIMD4<Float>(1, 1, 1, 1)
     var dark = SIMD4<Float>(0.5, 0.5, 0.5, 0)    // albedo under the dark theme
+    var p2 = SIMD4<Float>(0, 0, 0, 0)            // clearcoat (array look), clearcoat roughness
 }
 
 enum SurfaceKind: Float { case opaque = 0, frost = 1, internalPart = 2, floor = 3, ivory = 4 }
@@ -50,8 +51,10 @@ enum Surfaces {
         switch mesh.materialName {
         case "Frosted_Polymer":
             set(low: srgbLinear(0xfff7ed), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
-            m.p0.z = 0.35; m.p0.w = 0.9
+            // Web `arrayMat`: transmission 0.78 with a light clearcoat; the extracted cover clears to 0.9.
+            m.p0.z = 0.78; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
+            m.p2 = SIMD4(0.3, 0.25, 0, 0)
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
             kind = .frost
         case "Ivory_Edges":

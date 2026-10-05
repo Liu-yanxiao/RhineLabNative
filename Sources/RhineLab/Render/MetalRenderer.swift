@@ -89,14 +89,14 @@ final class MetalRenderer {
     private var depthResolved: MTLTexture!
     private var shadowMap: MTLTexture!
 
-    // Look tuned against the web version's renders: a strong warm key, little fill, modest ambient.
-    static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 1.15
+    // Light intensities follow the web version's `createArchiveLighting` (baseline look); AO is a light touch since the web has none.
+    static let exposure: Float = Float(ProcessInfo.processInfo.environment["RL_EXPOSURE"] ?? "") ?? 1.05
     static let aoRadius: Float = Float(ProcessInfo.processInfo.environment["RL_AO_RADIUS"] ?? "") ?? 2.0
-    static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 3.0
-    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 2.2
-    static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.3
-    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.45
-    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.4
+    static let aoStrength: Float = Float(ProcessInfo.processInfo.environment["RL_AO"] ?? "") ?? 1.0
+    static let keyScale: Float = Float(ProcessInfo.processInfo.environment["RL_KEY"] ?? "") ?? 1.4
+    static let fillScale: Float = Float(ProcessInfo.processInfo.environment["RL_FILL"] ?? "") ?? 0.6
+    static let hemiScale: Float = Float(ProcessInfo.processInfo.environment["RL_HEMI"] ?? "") ?? 0.65
+    static let envScale: Float = Float(ProcessInfo.processInfo.environment["RL_ENV"] ?? "") ?? 0.3
     /// Linear colours that come out as the requested sRGB colour after tone mapping at `exposure`.
     private var backgroundCache: [UInt64: SIMD3<Float>] = [:]
     private func linearBackground(_ srgb: SIMD3<Float>, exposure: Float) -> SIMD3<Float> {

@@ -31,6 +31,7 @@ struct SurfaceMat {
     float4 p1;          // thickness, attenuationDistance, ior, kind
     float4 atten;       // attenuation colour
     float4 dark;        // albedo under the dark theme
+    float4 p2;          // clearcoat, clearcoat roughness
 };
 
 struct VIn {
@@ -120,7 +121,7 @@ float shadowFactor(constant Frame &f, depth2d<float> map, float3 wpos, float3 N,
 struct Lit { float3 diffuse; float3 spec; };
 
 Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, float3 N, float3 V, float shadow,
-                 texturecube<float> envSpec, texturecube<float> envIrr) {
+                 texturecube<float> envSpec, texturecube<float> envIrr, float clearcoat = 0.0, float ccRough = 0.25) {
     constexpr sampler cubeS(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge);
     float3 diffC = albedo * (1 - metal);
     float3 F0 = mix(float3(0.04), albedo, metal);
@@ -142,6 +143,16 @@ Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, flo
         float3 F = F0 + (1 - F0) * pow(1 - VoH, 5.0);
         L.spec += col * NoL * D * Vis * F;
         L.diffuse += col * NoL * diffC / PI;
+        if (clearcoat > 0) {
+            // Thin dielectric coat over the frosted body (three.js clearcoat lobe, F0 = 0.04).
+            float ca = max(ccRough * ccRough, 0.002);
+            float cd2 = NoH * NoH * (ca * ca - 1) + 1;
+            float cD = ca * ca / (PI * cd2 * cd2);
+            float cgv = NoL * sqrt(NoV * NoV * (1 - ca * ca) + ca * ca);
+            float cgl = NoV * sqrt(NoL * NoL * (1 - ca * ca) + ca * ca);
+            float cF = 0.04 + 0.96 * pow(1 - VoH, 5.0);
+            L.spec += col * NoL * cD * (0.5 / max(cgv + cgl, 1e-4)) * cF * clearcoat;
+        }
     }
     float3 hemi = mix(f.hemiGround.rgb, f.hemiSky.rgb, N.y * 0.5 + 0.5);
     L.diffuse += hemi * diffC / PI;
@@ -149,6 +160,12 @@ Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, flo
     L.diffuse += envIrr.sample(cubeS, N).rgb * envScale * diffC;
     float2 ab = envBRDF(rough, NoV);
     L.spec += envSpec.sample(cubeS, reflect(-V, N), level(rough * 5.0)).rgb * envScale * (F0 * ab.x + ab.y);
+    if (clearcoat > 0) {
+        float2 cab = envBRDF(ccRough, NoV);
+        float ccF = (0.04 * cab.x + cab.y) * clearcoat;
+        L.spec += envSpec.sample(cubeS, reflect(-V, N), level(ccRough * 5.0)).rgb * envScale * ccF;
+        L.diffuse *= 1.0 - ccF;
+    }
     return L;
 }
 
@@ -224,7 +241,8 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     if (!front) N = -N;
     float3 V = normalize(f.camPos.xyz - in.wpos);
     float shadow = shadowFactor(f, shadowMap, in.wpos, N, in.position.xy);
-    Lit L = lightSurface(f, albedo, mix(m.p0.x, m.p0.y, q), rough, N, V, shadow, envSpec, envIrr);
+    float clearcoat = m.p2.x * (1.0 - q) * (1.0 - clearing);
+    Lit L = lightSurface(f, albedo, mix(m.p0.x, m.p0.y, q), rough, N, V, shadow, envSpec, envIrr, clearcoat, m.p2.y);
 
     // Refraction: where the view ray leaves the slab, read the blurred opaque capture.
     float3 rv = refract(-V, N, 1.0 / ior);
