@@ -219,6 +219,8 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float tintAmount = frost ? 1.0 - q : 0.0;
     float g = smoothstep(0.1, 1.0, clamp(in.h, 0.0, 1.0));
     float3 gradient = mix(float3(0.40, 0.30, 0.20), float3(1.0, 0.98, 0.94), g);
+    // The far side is seen again through the front, so the body tint is split between the two.
+    if (!front) gradient = sqrt(gradient);
     albedo *= mix(float3(1.0), gradient, tintAmount);
     // Dark theme: smoke-grey shell; the cleared cover tends towards a cool near-white tint.
     float3 darkAlbedo = frost ? mix(m.dark.rgb, float3(0.92, 0.96, 0.97), clearing) : m.dark.rgb;
