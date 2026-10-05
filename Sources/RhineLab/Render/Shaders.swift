@@ -12,14 +12,14 @@ struct Frame {
     float4x4 lightViewProj;
     float4 camPos;
     float4 params;      // x exposure, y fogNear, z fogFar, w envScale
-    float4 screen;      // xy size in pixels, z unused, w time
+    float4 screen;      // xy size in pixels, z shadows enabled, w time
     float4 fogColor;
     float4 keyDir;  float4 keyColor;
     float4 fillDir; float4 fillColor;
     float4 hemiSky; float4 hemiGround;
     float4 post;        // x focusDistance, y dof strength
     float4 clip;        // near, far, aperture, max blur
-    float4 ao;          // radius, strength, bias, unused
+    float4 ao;          // radius, strength, bias, tap count
 };
 
 struct Inst { float4 posTilt; float4 yawQR; };   // pos+tilt, yaw/quality/reveal
@@ -97,6 +97,7 @@ float2 envBRDF(float rough, float NoV) {
 }
 
 float shadowFactor(constant Frame &f, depth2d<float> map, float3 wpos, float3 N, float2 pixel) {
+    if (f.screen.z < 0.5) return 1.0;
     constexpr sampler cmp(coord::normalized, filter::linear, address::clamp_to_edge, compare_func::less_equal);
     float4 lp = f.lightViewProj * float4(wpos + N * 0.03, 1);
     float3 s = lp.xyz / lp.w;
@@ -261,8 +262,8 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
 
 // ---- Printed label ----------------------------------------------------------
 
-fragment float4 fs_label(VOut in [[stage_in]], constant Frame &f [[buffer(1)]], texture2d<float> tex [[texture(2)]]) {
-    constexpr sampler s(coord::normalized, filter::linear, mip_filter::linear, address::clamp_to_edge, max_anisotropy(8));
+fragment float4 fs_label(VOut in [[stage_in]], constant Frame &f [[buffer(1)]], texture2d<float> tex [[texture(2)]],
+                         sampler s [[sampler(0)]]) {
     float4 c = tex.sample(s, in.uv);
     // Dark theme inverts the print: dark paper, light ink.
     float lum = dot(c.rgb, float3(0.2126, 0.7152, 0.0722));
@@ -330,9 +331,10 @@ fragment float fs_ao(FSOut in [[stage_in]], constant Frame &f [[buffer(1)]], dep
     float screenRadius = R * f.proj[1][1] / max(-P.z, 0.001) * 0.5;
     float2 aspect = float2(size.y / size.x, 1.0);
     float noise = fract(52.9829189 * fract(dot(in.position.xy, float2(0.06711056, 0.00583715))));
-    const int taps = 16;
+    int taps = clamp(int(f.ao.w), 1, 64);
     float occ = 0;
-    for (int i = 0; i < taps; i++) {
+    for (int i = 0; i < 64; i++) {
+        if (i >= taps) break;
         float r = (float(i) + 0.5) / float(taps);
         float a = float(i) * 2.39996323;
         float2 uv = in.uv + float2(cos(a), sin(a)) * (0.15 + 0.85 * r) * screenRadius * aspect;

@@ -31,6 +31,10 @@ final class AppModel: ObservableObject {
     @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs(); audio.play(.confirm) } }
     @Published var dark = UserDefaults.standard.bool(forKey: "rhine-dark") { didSet { applyTheme(); audio.play(.tick) } }
     @Published var audioPrefs = AppModel.loadAudioPrefs() { didSet { saveAudio() } }
+    @Published var quality = RenderQuality.load() { didSet { if oldValue != quality { applyQuality() } } }
+    @Published var superPerformance = UserDefaults.standard.bool(forKey: "rhine-super") { didSet { applyQuality(); audio.play(.confirm) } }
+    /// What the renderer actually uses: the super performance mode overrides the saved quality.
+    var effectiveQuality: RenderQuality { superPerformance ? .superPerformance : quality }
     @Published var columnMemory: [Int]
     // 360° viewer
     @Published var viewerOpen = false
@@ -62,6 +66,7 @@ final class AppModel: ObservableObject {
         }
         applyPrefs()
         applyTheme(immediate: true)
+        applyQuality()
         if !Self.headless { audio.configure(audioPrefs) }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -82,6 +87,20 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(dark, forKey: "rhine-dark")
         engine.setTheme(dark: dark, time: now, immediate: immediate)
         viewer.theme = dark ? 1 : 0
+    }
+
+    private func applyQuality() {
+        quality.save()
+        UserDefaults.standard.set(superPerformance, forKey: "rhine-super")
+        sceneView.applyQuality(effectiveQuality, superPerformance: superPerformance)
+    }
+
+    /// "实际渲染 1600 × 900 · MSAA 4× · 纹理 16×" for the settings dialog.
+    var qualitySummary: String {
+        let q = effectiveQuality
+        let size = sceneView.renderedSize
+        let prefix = superPerformance ? "超级性能模式已启用 · 画质设置暂被覆盖，关闭后恢复 · " : ""
+        return prefix + "实际渲染 \(Int(size.width)) × \(Int(size.height)) · \(q.antialias ? "MSAA 4×" : "无抗锯齿") · 纹理 \(q.anisotropy)×"
     }
 
     private static func loadAudioPrefs() -> AudioPreferences {

@@ -15,9 +15,23 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
 
     /// Resolution multiplier (relative to points, capped by the screen's backing scale) while still,
     /// and while moving: motion trades a little sharpness for a steady 120 fps.
-    var stillScale: CGFloat = 2
-    var motionScale: CGFloat = CGFloat(Double(ProcessInfo.processInfo.environment["RL_MOTION_SCALE"] ?? "") ?? 1.5)
+    var stillScale: CGFloat = 1.5
+    var motionScale: CGFloat = CGFloat(Double(ProcessInfo.processInfo.environment["RL_MOTION_SCALE"] ?? "") ?? 1.25)
+    private var pixelBudget = RenderQuality.pixelBudget
     private var settleFrames = 0
+
+    /// Pixel size of the last drawable (main thread), for the settings summary.
+    var renderedSize: CGSize { metalLayer.drawableSize }
+
+    /// Resolution and renderer settings from the quality preferences.
+    func applyQuality(_ q: RenderQuality, superPerformance: Bool) {
+        let scale = CGFloat(q.pixelRatio) * CGFloat(q.scale) / 100
+        stillScale = scale
+        motionScale = max(0.5, scale * 0.75)
+        pixelBudget = superPerformance ? RenderQuality.superPixelBudget : RenderQuality.pixelBudget
+        renderer.renderQuality = q
+        updateDrawableSize()
+    }
 
     // Adaptive quality: the GPU is shared with other apps, so watch the real frame cost and
     // step effects down (and the frame rate to 60) rather than letting frames slip.
@@ -115,7 +129,9 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     }
 
     private func applyScale(_ requested: CGFloat) {
-        let scale = min(requested, backing)
+        var scale = min(requested, backing)
+        let pixels = points.width * points.height * scale * scale
+        if pixels > CGFloat(pixelBudget) { scale *= (CGFloat(pixelBudget) / pixels).squareRoot() }
         let size = CGSize(width: (points.width * scale).rounded(), height: (points.height * scale).rounded())
         if size.width > 0, metalLayer.drawableSize != size { metalLayer.drawableSize = size }
     }

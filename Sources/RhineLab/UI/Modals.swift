@@ -322,6 +322,16 @@ private struct SettingsPanel: View {
 
     var body: some View {
         ModalFrame(label: "RHINE LAB / SYSTEM PREFERENCES", width: 1080, height: nil) {
+            if AppModel.headless {
+                settingsContent
+            } else {
+                ScrollView(showsIndicators: false) { settingsContent }.frame(maxHeight: 900)
+            }
+        }
+    }
+
+    private var settingsContent: some View {
+        VStack(spacing: 0) {
             ModalTitle(title: "SYSTEM SETTINGS", subtitle: "终端偏好设置", size: 33)
 
             HStack(spacing: 18) { Text("JOYCE MOORE"); Text("·"); Text("SESSION AUTHORIZED") }
@@ -343,6 +353,7 @@ private struct SettingsPanel: View {
                 }
                 .padding(.vertical, 16)
                 .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
+                SettingRow(title: "SUPER PERFORMANCE", hint: "降低三维画质和渲染分辨率，保留完整动效；关闭后恢复原画质", isOn: $model.superPerformance)
                 HStack(alignment: .top, spacing: 32) {
                     AudioSetting(title: "INTERFACE SOUND", hint: "操作与启动音效", label: "音效音量",
                                  isOn: $model.audioPrefs.sound, volume: $model.audioPrefs.soundVolume)
@@ -353,6 +364,8 @@ private struct SettingsPanel: View {
                 SettingRow(title: "IDLE DRIFT", hint: "停在档案阵列时保留缓慢起伏；关闭后画面静止时完全不渲染", isOn: $model.idleDrift)
             }
             .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
+
+            QualitySection()
 
             VStack(alignment: .leading, spacing: 19) {
                 Text("KEYBOARD CONTROLS").font(Theme.font(9)).tracking(1).foregroundStyle(pal.muted)
@@ -382,7 +395,188 @@ private struct SettingsPanel: View {
 
             ModalFooter(left: "ANALYSIS OS / 1.0 · 使用 MiSans 字体（小米）", right: AnyView(Text("POWERED BY RHINE LAB")))
                 .padding(.top, 28)
+                .padding(.bottom, 4)
         }
+    }
+}
+
+// MARK: Render quality
+
+/// RENDER QUALITY: preset, the actual render size and the fine controls (web `quality-settings`).
+private struct QualitySection: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.palette) private var pal
+    @State private var advanced = false
+
+    private var presetLabels: [String] {
+        RenderQuality.Preset.allCases.map(\.label) + (model.quality.preset == nil ? ["自定义"] : [])
+    }
+
+    var body: some View {
+        let q = model.quality
+        let locked = model.superPerformance
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 30) {
+                HStack(spacing: 18) {
+                    Text("RENDER QUALITY").tracking(0.8)
+                    Text("渲染画质").foregroundStyle(pal.muted)
+                }
+                .font(Theme.font(12))
+                Spacer()
+                CycleChoice(options: presetLabels, index: RenderQuality.Preset.allCases.firstIndex { $0 == q.preset } ?? 4) { i in
+                    model.quality = RenderQuality.Preset.allCases[i % RenderQuality.Preset.allCases.count].quality
+                }
+                .disabled(locked).opacity(locked ? 0.5 : 1)
+            }
+            .padding(.top, 24)
+
+            Text(model.qualitySummary).font(Theme.font(12)).foregroundStyle(pal.muted)
+                .padding(.top, 12).padding(.bottom, 20)
+
+            Button { withAnimation(.easeOut(duration: 0.2)) { advanced.toggle() } } label: {
+                HStack(spacing: 16) {
+                    Text(advanced ? "▾" : "▸").font(Theme.font(11))
+                    Text("精细设置").font(Theme.font(13))
+                    Text("清晰度 / 材质 / 阴影").font(Theme.font(11)).foregroundStyle(pal.muted)
+                }
+                .padding(.vertical, 15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
+
+            if advanced {
+                VStack(spacing: 0) {
+                    RangeControl(label: "渲染比例", hint: "相对屏幕像素，受密度上限限制；高比例改善细线",
+                                 value: Double(q.scale), range: 50...200, step: 5) { model.quality.scale = Int($0) }
+                    HStack(alignment: .top, spacing: 32) {
+                        VStack(spacing: 0) {
+                            ChoiceControl(label: "像素密度上限", hint: "控制高密度屏幕的原生像素倍率",
+                                          options: ["1×", "1.5×", "2×", "3×"], index: [1, 1.5, 2, 3].firstIndex(of: q.pixelRatio) ?? 1) {
+                                model.quality.pixelRatio = [1, 1.5, 2, 3][$0]
+                            }
+                            ChoiceControl(label: "抗锯齿", hint: "4× 多重采样平滑模型边缘", options: ["关闭", "MSAA 4×"],
+                                          index: q.antialias ? 1 : 0) { model.quality.antialias = $0 == 1 }
+                            ChoiceControl(label: "纹理过滤", hint: "改善倾斜视角下的标签细节",
+                                          options: ["1×", "2×", "4×", "8×", "16×"], index: [1, 2, 4, 8, 16].firstIndex(of: q.anisotropy) ?? 4) {
+                                model.quality.anisotropy = [1, 2, 4, 8, 16][$0]
+                            }
+                            ChoiceControl(label: "透明材质分辨率", hint: "控制盖板折射画面的清晰度",
+                                          options: ["25%", "50%", "75%", "100%"], index: [0.25, 0.5, 0.75, 1].firstIndex(of: q.transmission) ?? 3) {
+                                model.quality.transmission = [0.25, 0.5, 0.75, 1][$0]
+                            }
+                        }
+                        VStack(spacing: 0) {
+                            ChoiceControl(label: "阴影分辨率 · 阵列", hint: "更高分辨率保留更细的投影边缘",
+                                          options: ["关闭", "1024", "2048", "4096"], index: [0, 1024, 2048, 4096].firstIndex(of: q.shadows) ?? 2) {
+                                model.quality.shadows = [0, 1024, 2048, 4096][$0]
+                            }
+                            ChoiceControl(label: "环境遮蔽 · 阵列", hint: "采样越多，接缝暗部越细腻",
+                                          options: ["关闭", "16 采样", "32 采样", "64 采样"], index: [0, 16, 32, 64].firstIndex(of: q.aoSamples) ?? 2) {
+                                model.quality.aoSamples = [0, 16, 32, 64][$0]
+                            }
+                            ChoiceControl(label: "遮蔽分辨率 · 阵列", hint: "降低可减轻环境遮蔽的渲染负担",
+                                          options: ["50%", "75%", "100%"], index: [0.5, 0.75, 1].firstIndex(of: q.aoResolution) ?? 2) {
+                                model.quality.aoResolution = [0.5, 0.75, 1][$0]
+                            }
+                        }
+                    }
+                    RangeControl(label: "景深强度 · 阵列", hint: "抽取档案时的镜头虚化；0 关闭",
+                                 value: Double(q.depthOfField), range: 0...150, step: 5) { model.quality.depthOfField = Int($0) }
+                }
+                .disabled(locked).opacity(locked ? 0.5 : 1)
+            }
+
+            Text("即时生效并自动保存。清晰度与材质设置同步至 360° 查看器。高渲染比例更适合静态观察；缓冲上限为 829 万像素，硬件限制时自动收敛。")
+                .font(Theme.font(11)).lineSpacing(6).foregroundStyle(pal.muted)
+                .padding(.top, 12).padding(.bottom, 18)
+        }
+        .foregroundStyle(pal.ink)
+        .overlay(alignment: .bottom) { Rectangle().fill(pal.line).frame(height: 1) }
+    }
+}
+
+/// A bordered field that cycles through its options on click (the web's native select).
+private struct CycleChoice: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.palette) private var pal
+    let options: [String]
+    let index: Int
+    let select: (Int) -> Void
+
+    var body: some View {
+        Button {
+            model.audio.play(.uiTick)
+            select((index + 1) % max(1, options.count))
+        } label: {
+            HStack(spacing: 14) {
+                Text(options.indices.contains(index) ? options[index] : "自定义").font(Theme.font(12))
+                Spacer(minLength: 0)
+                Text("↻").font(Theme.font(12)).foregroundStyle(pal.muted)
+            }
+            .padding(.vertical, 9).padding(.leading, 12).padding(.trailing, 10)
+            .frame(width: 125)
+            .background(pal.field)
+            .overlay(Rectangle().stroke(pal.line, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ChoiceControl: View {
+    @Environment(\.palette) private var pal
+    let label: String
+    let hint: String
+    let options: [String]
+    let index: Int
+    let select: (Int) -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(label).font(Theme.font(13))
+                Text(hint).font(Theme.font(10)).lineSpacing(3).foregroundStyle(pal.muted)
+            }
+            Spacer(minLength: 0)
+            CycleChoice(options: options, index: index, select: select)
+        }
+        .padding(.vertical, 15)
+        .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
+    }
+}
+
+/// Slider row; the value is committed when the drag ends so the renderer rebuilds once.
+private struct RangeControl: View {
+    @Environment(\.palette) private var pal
+    let label: String
+    let hint: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let commit: (Double) -> Void
+    @State private var dragging: Double?
+
+    var body: some View {
+        let shown = dragging ?? value
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(label).font(Theme.font(13))
+                Text(hint).font(Theme.font(10)).foregroundStyle(pal.muted)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 18) {
+                Slider(value: Binding(get: { shown }, set: { dragging = $0 }), in: range, step: step) { editing in
+                    if !editing, let v = dragging { commit(v); dragging = nil }
+                }
+                .tint(pal.switchOn)
+                .frame(width: 250)
+                Text("\(Int(shown))%").font(Theme.font(12)).frame(minWidth: 44, alignment: .trailing)
+            }
+        }
+        .padding(.vertical, 15)
+        .overlay(alignment: .top) { Rectangle().fill(pal.line).frame(height: 1) }
     }
 }
 

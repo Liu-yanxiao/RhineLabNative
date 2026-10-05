@@ -36,10 +36,14 @@ final class MetalRenderer {
 
     let device: MTLDevice
     private let queue: MTLCommandQueue
-    private var pipeOpaque: MTLRenderPipelineState!
-    private var pipeCapture: MTLRenderPipelineState!
-    private var pipeTrans: MTLRenderPipelineState!
-    private var pipeLabel: MTLRenderPipelineState!
+    // Scene pipelines per sample count (4× MSAA, or 1 when anti-aliasing is off).
+    private var pipeOpaqueBy: [Int: MTLRenderPipelineState] = [:]
+    private var pipeTransBy: [Int: MTLRenderPipelineState] = [:]
+    private var pipeLabelBy: [Int: MTLRenderPipelineState] = [:]
+    private var pipeOpaque: MTLRenderPipelineState { pipeOpaqueBy[samples]! }
+    private var pipeTrans: MTLRenderPipelineState { pipeTransBy[samples]! }
+    private var pipeLabel: MTLRenderPipelineState { pipeLabelBy[samples]! }
+    private var labelSampler: MTLSamplerState!
     private var pipeShadow: MTLRenderPipelineState!
     private var pipeComposite: MTLRenderPipelineState!
     private var pipeAO: MTLRenderPipelineState!
@@ -50,6 +54,16 @@ final class MetalRenderer {
     private var depthWrite: MTLDepthStencilState!
     private var depthNoWrite: MTLDepthStencilState!
     private var compositeFormat: MTLPixelFormat
+
+    // Quality: set from the main thread, adopted at the start of the next frame.
+    private let qualityLock = NSLock()
+    private var requestedQuality = RenderQuality.original
+    private(set) var quality = RenderQuality.original
+    private var samples = 4
+    var renderQuality: RenderQuality {
+        get { qualityLock.lock(); defer { qualityLock.unlock() }; return requestedQuality }
+        set { qualityLock.lock(); requestedQuality = newValue; qualityLock.unlock() }
+    }
 
     // Geometry
     private var arrayMeshes: [GPUMesh] = []
@@ -201,10 +215,12 @@ final class MetalRenderer {
             }
             return try device.makeRenderPipelineState(descriptor: d)
         }
-        pipeOpaque = try scene("vs_main", "fs_surface")
-        pipeCapture = try scene("vs_main", "fs_surface", samples: 1)
-        pipeTrans = try scene("vs_main", "fs_trans")
-        pipeLabel = try scene("vs_main", "fs_label", blend: true)
+        for count in [1, 4] {
+            pipeOpaqueBy[count] = try scene("vs_main", "fs_surface", samples: count)
+            pipeTransBy[count] = try scene("vs_main", "fs_trans", samples: count)
+            pipeLabelBy[count] = try scene("vs_main", "fs_label", blend: true, samples: count)
+        }
+        labelSampler = makeLabelSampler(anisotropy: quality.anisotropy)
 
         let s = MTLRenderPipelineDescriptor()
         s.vertexFunction = library.makeFunction(name: "vs_shadow")
@@ -228,6 +244,26 @@ final class MetalRenderer {
         depthWrite = device.makeDepthStencilState(descriptor: on)
         let off = MTLDepthStencilDescriptor(); off.depthCompareFunction = .lessEqual; off.isDepthWriteEnabled = false
         depthNoWrite = device.makeDepthStencilState(descriptor: off)
+    }
+
+    private func makeLabelSampler(anisotropy: Int) -> MTLSamplerState {
+        let d = MTLSamplerDescriptor()
+        d.minFilter = .linear; d.magFilter = .linear; d.mipFilter = .linear
+        d.sAddressMode = .clampToEdge; d.tAddressMode = .clampToEdge
+        d.maxAnisotropy = max(1, min(16, anisotropy))
+        return device.makeSamplerState(descriptor: d)!
+    }
+
+    /// Adopt a changed quality: pipelines, targets and the shadow map follow on this frame.
+    private func adoptQuality() {
+        qualityLock.lock(); let next = requestedQuality; qualityLock.unlock()
+        guard next != quality else { return }
+        if next.anisotropy != quality.anisotropy { labelSampler = makeLabelSampler(anisotropy: next.anisotropy) }
+        if next.shadows != quality.shadows { shadowMap = nil }
+        quality = next
+        samples = next.antialias ? Self.sampleCount : 1
+        targetCache.removeAll()
+        size = (0, 0)
     }
 
     /// Bakes the studio environment once: a sharp radiance cube, GGX-prefiltered mips for glossy
@@ -355,8 +391,8 @@ final class MetalRenderer {
     }
 
     private struct Targets {
-        var captureColor: MTLTexture, captureMSAA: MTLTexture, captureDepth: MTLTexture
-        var msaaColor: MTLTexture, msaaDepth: MTLTexture
+        var captureColor: MTLTexture, captureMSAA: MTLTexture?, captureDepth: MTLTexture
+        var msaaColor: MTLTexture?, msaaDepth: MTLTexture?
         var resolved: MTLTexture, depthResolved: MTLTexture, ao: MTLTexture
     }
     private var targetCache: [Int: Targets] = [:]
@@ -375,7 +411,8 @@ final class MetalRenderer {
         msaaColor = t.msaaColor; msaaDepth = t.msaaDepth
         resolved = t.resolved; depthResolved = t.depthResolved; aoTexture = t.ao
         if shadowMap == nil {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: 4096, height: 4096, mipmapped: false)
+            let side = quality.shadows > 0 ? quality.shadows : 16
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: side, height: side, mipmapped: false)
             d.usage = [.renderTarget, .shaderRead]; d.storageMode = .private
             shadowMap = device.makeTexture(descriptor: d)
         }
@@ -387,22 +424,26 @@ final class MetalRenderer {
             let d = MTLTextureDescriptor()
             d.textureType = ms ? .type2DMultisample : .type2D
             d.pixelFormat = format; d.width = w; d.height = h
-            d.sampleCount = ms ? Self.sampleCount : 1
+            d.sampleCount = ms ? samples : 1
             d.mipmapLevelCount = mips ? Int(floor(log2(Double(max(w, h))))) + 1 : 1
             d.usage = read ? [.renderTarget, .shaderRead] : [.renderTarget]
             d.storageMode = memoryless ? .memoryless : .private
             return device.makeTexture(descriptor: d)!
         }
-        // MSAA targets live in tile memory only; just the resolves are stored.
+        // MSAA targets live in tile memory only; just the resolves are stored. Without MSAA the
+        // passes draw straight into the stored textures.
+        let msaa = samples > 1
+        let cw = max(1, Int(Float(w) * quality.transmission)), ch = max(1, Int(Float(h) * quality.transmission))
+        let aw = max(1, Int(Float(w) * 0.5 * quality.aoResolution)), ah = max(1, Int(Float(h) * 0.5 * quality.aoResolution))
         return Targets(
-            captureColor: target(.rgba16Float, w, h, mips: true, read: true),
-            captureMSAA: target(.rgba16Float, w, h, ms: true, memoryless: true),
-            captureDepth: target(.depth32Float, w, h, ms: true, memoryless: true),
-            msaaColor: target(.rgba16Float, w, h, ms: true, memoryless: true),
-            msaaDepth: target(.depth32Float, w, h, ms: true, memoryless: true),
+            captureColor: target(.rgba16Float, cw, ch, mips: true, read: true),
+            captureMSAA: msaa ? target(.rgba16Float, cw, ch, ms: true, memoryless: true) : nil,
+            captureDepth: target(.depth32Float, cw, ch, ms: msaa, memoryless: true),
+            msaaColor: msaa ? target(.rgba16Float, w, h, ms: true, memoryless: true) : nil,
+            msaaDepth: msaa ? target(.depth32Float, w, h, ms: true, memoryless: true) : nil,
             resolved: target(.rgba16Float, w, h, read: true),
             depthResolved: target(.depth32Float, w, h, read: true),
-            ao: target(.r8Unorm, max(1, w / 2), max(1, h / 2), read: true))
+            ao: target(.r8Unorm, aw, ah, read: true))
     }
 
     // MARK: Frame
@@ -420,7 +461,7 @@ final class MetalRenderer {
         let exposure = Self.exposure * (1 - 0.02 * th)
         let lights = 1 - 0.35 * th
         u.params = SIMD4(exposure, frame.fogNear, frame.fogFar, Self.envScale * (1 - 0.385 * th))
-        u.screen = SIMD4(Float(width), Float(height), 0, frame.time)
+        u.screen = SIMD4(Float(width), Float(height), quality.shadows > 0 ? 1 : 0, frame.time)
         u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
         u.keyColor = SIMD4(srgbLinear(0xfff7ed) * 1.4 * lights, 1)
@@ -428,16 +469,20 @@ final class MetalRenderer {
         u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * 0.6 * lights, 1)
         u.hemiSky = SIMD4(srgbLinear(0xfffaf5) * 0.65 * lights, 1)
         u.hemiGround = SIMD4(srgbLinear(0xb4a18c) * 0.65 * lights, 1)
-        u.post = SIMD4(frame.focusDistance, frame.depthOfField, Float(frame.effectsOff), 0)
-        let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * frame.depthOfField
+        let dof = frame.depthOfField * Float(quality.depthOfField) / 100
+        var effectsOff = frame.effectsOff
+        if quality.aoSamples == 0 { effectsOff |= 2 }
+        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), 0)
+        let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * dof
         u.clip = SIMD4(frame.near, frame.far, aperture, 0.011)
-        u.ao = SIMD4(Self.aoRadius, Self.aoStrength, 0.25, 0)
+        u.ao = SIMD4(Self.aoRadius, Self.aoStrength, 0.25, Float(max(16, quality.aoSamples)))
         return u
     }
 
     /// Draws one frame into `target` (a drawable texture or an offscreen texture).
     func render(_ frame: RenderFrame, to target: MTLTexture, present drawable: MTLDrawable? = nil,
                 completion: (() -> Void)? = nil) {
+        adoptQuality()
         resize(target.width, target.height)
         inFlight.wait()
         guard let cb = queue.makeCommandBuffer() else { inFlight.signal(); return }
@@ -467,7 +512,7 @@ final class MetalRenderer {
         sp.depthAttachment.texture = shadowMap
         sp.depthAttachment.loadAction = .clear; sp.depthAttachment.storeAction = .store; sp.depthAttachment.clearDepth = 1
         timed(sp, 0)
-        if let e = cb.makeRenderCommandEncoder(descriptor: sp) {
+        if quality.shadows > 0, let e = cb.makeRenderCommandEncoder(descriptor: sp) {
             e.setRenderPipelineState(pipeShadow)
             e.setDepthStencilState(depthWrite)
             e.setDepthBias(0.0, slopeScale: 1.5, clamp: 0.01)
@@ -523,10 +568,15 @@ final class MetalRenderer {
 
         // 2. Opaque capture (MSAA, resolved into a mip chain): the glass blurs and refracts this.
         let cp0 = MTLRenderPassDescriptor()
-        cp0.colorAttachments[0].texture = captureMSAA
-        cp0.colorAttachments[0].resolveTexture = captureColor
+        if let captureMSAA {
+            cp0.colorAttachments[0].texture = captureMSAA
+            cp0.colorAttachments[0].resolveTexture = captureColor
+            cp0.colorAttachments[0].storeAction = .multisampleResolve
+        } else {
+            cp0.colorAttachments[0].texture = captureColor
+            cp0.colorAttachments[0].storeAction = .store
+        }
         cp0.colorAttachments[0].loadAction = .clear
-        cp0.colorAttachments[0].storeAction = .multisampleResolve
         cp0.colorAttachments[0].clearColor = clear
         cp0.depthAttachment.texture = captureDepth
         cp0.depthAttachment.loadAction = .clear; cp0.depthAttachment.storeAction = .dontCare; cp0.depthAttachment.clearDepth = 1
@@ -544,15 +594,23 @@ final class MetalRenderer {
 
         // 3. Main pass: everything at full resolution with MSAA, resolved straight to textures.
         let mp = MTLRenderPassDescriptor()
-        mp.colorAttachments[0].texture = msaaColor
-        mp.colorAttachments[0].resolveTexture = resolved
+        if let msaaColor, let msaaDepth {
+            mp.colorAttachments[0].texture = msaaColor
+            mp.colorAttachments[0].resolveTexture = resolved
+            mp.colorAttachments[0].storeAction = .multisampleResolve
+            mp.depthAttachment.texture = msaaDepth
+            mp.depthAttachment.resolveTexture = depthResolved
+            mp.depthAttachment.depthResolveFilter = .min
+            mp.depthAttachment.storeAction = .multisampleResolve
+        } else {
+            mp.colorAttachments[0].texture = resolved
+            mp.colorAttachments[0].storeAction = .store
+            mp.depthAttachment.texture = depthResolved
+            mp.depthAttachment.storeAction = .store
+        }
         mp.colorAttachments[0].loadAction = .clear
-        mp.colorAttachments[0].storeAction = .multisampleResolve
         mp.colorAttachments[0].clearColor = clear
-        mp.depthAttachment.texture = msaaDepth
-        mp.depthAttachment.resolveTexture = depthResolved
-        mp.depthAttachment.depthResolveFilter = .min
-        mp.depthAttachment.loadAction = .clear; mp.depthAttachment.storeAction = .multisampleResolve; mp.depthAttachment.clearDepth = 1
+        mp.depthAttachment.loadAction = .clear; mp.depthAttachment.clearDepth = 1
         timed(mp, 2)
         if let e = cb.makeRenderCommandEncoder(descriptor: mp) {
             e.setRenderPipelineState(pipeOpaque)
@@ -576,6 +634,7 @@ final class MetalRenderer {
             // Printed labels
             e.setRenderPipelineState(pipeLabel)
             e.setDepthStencilState(depthNoWrite)
+            e.setFragmentSamplerState(labelSampler, index: 0)
             if let a = frame.assembly {
                 if let label = labelTexture(a.labelIndex) {
                     var inst = assemblyInstance("cover", a)
