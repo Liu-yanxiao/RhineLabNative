@@ -286,8 +286,13 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     if (frost && f.post.w > 0.0) {
         // Light entering from behind scatters through the frosted body: faces turned away from the
         // key light glow with the body tint instead of falling dark (the video's backlit amber).
-        float backlit = saturate(-dot(N, f.keyDir.xyz)) * 0.7 + 0.3 * (1.0 - abs(dot(N, f.keyDir.xyz)));
-        float3 glow = f.keyColor.rgb * attenColor * albedo * backlit * f.post.w * (1.0 - clearing);
+        // Most light enters through the lit top edge and fades with depth; a little comes straight
+        // through from behind. Vertical faces only, so the tops keep their direct lighting.
+        float topLeak = exp(-(1.0 - clamp(in.h, 0.0, 1.0)) * f.keyColor.w);
+        float backlit = saturate(-dot(N, f.keyDir.xyz));
+        float3 scatterTint = mix(attenColor, float3(1.0), 0.4);
+        float3 glow = f.keyColor.rgb * scatterTint * albedo * (0.65 * topLeak + 0.35 * backlit)
+                    * (1.0 - saturate(N.y)) * f.post.w * (1.0 - clearing);
         color += glow;
     }
     color = applyFog(f, color, in.wpos);

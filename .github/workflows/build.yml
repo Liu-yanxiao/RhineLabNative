@@ -46,12 +46,12 @@ jobs:
         run: |
           APP=build/RhineLab.app/Contents/MacOS/RhineLab
           sweep() { name=$1; shift; env "$@" $APP --shot shots/sweep-$name-archive.png --ui archive --size 1920x1080 || true; env "$@" $APP --shot shots/sweep-$name-detail.png --ui detail --size 1920x1080 || true; }
-          sweep sc0 RL_SCATTER=0
-          sweep sc9 RL_SCATTER=0.9
-          sweep sc5k12 RL_KEY=1.2
-          sweep sc9k12 RL_SCATTER=0.9 RL_KEY=1.2
-          sweep sc7dist RL_SCATTER=0.7 RL_ATTEN_DIST=0.12
-          sweep sc7warm RL_SCATTER=0.7 RL_KEY_COLOR=ffd09a
+          sweep s20 RL_SCATTER=0.2
+          sweep s50 RL_SCATTER=0.5
+          sweep leak15 RL_LEAK=1.5
+          sweep leak4 RL_LEAK=4
+          sweep exp95 RL_EXPOSURE=0.95
+          sweep hemi60 RL_HEMI=0.6 RL_ENV=0.45
       - uses: actions/upload-artifact@v4
         if: always()
         with:

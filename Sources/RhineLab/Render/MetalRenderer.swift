@@ -474,7 +474,7 @@ final class MetalRenderer {
         u.screen = SIMD4(Float(width), Float(height), quality.shadows > 0 ? 1 : 0, frame.time)
         u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
-        u.keyColor = SIMD4(srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0)) * Self.keyScale * lights, 1)
+        u.keyColor = SIMD4(srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0)) * Self.keyScale * lights, Look.number("RL_LEAK", 2.5))
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
         u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, 1)
         u.hemiSky = SIMD4(srgbLinear(Look.hex("RL_HEMI_SKY", 0xfff4e6)) * Self.hemiScale * lights, 1)
@@ -482,7 +482,7 @@ final class MetalRenderer {
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }
-        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.5))
+        u.post = SIMD4(frame.focusDistance, dof, Float(effectsOff), Look.number("RL_SCATTER", 0.35))
         let aperture = (0.0003 + (0.0008 - 0.0003) * frame.detail) * dof
         u.clip = SIMD4(frame.near, frame.far, aperture, 0.011)
         u.ao = SIMD4(Self.aoRadius, Self.aoStrength, 0.25, Float(max(16, quality.aoSamples)))
