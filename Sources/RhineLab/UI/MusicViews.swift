@@ -24,7 +24,7 @@ struct MusicStage: View {
                 Text(model.sceneTrack != nil ? "\(model.collection.title)  ·  \(model.sceneTracks.count) TRACKS" : "\(library.collections.count) 张歌单  /  \(library.count) 首音乐")
                 Spacer()
                 Text("RHINE MUSIC")
-            }.font(Theme.font(11)).tracking(1).foregroundStyle(pal.muted).padding(.horizontal, 59).place(bottom: 35)
+            }.font(Theme.font(11)).tracking(1).foregroundStyle(pal.body).padding(.horizontal, 59).place(bottom: 35)
             }.opacity(model.modal == nil ? 1 : 0).allowsHitTesting(model.modal == nil)
             if model.modal == .search || model.modal == .saved { MusicSearch(savedOnly: model.modal == .saved).transition(.opacity) }
             if model.modal == .library { MusicLibraryPanel().transition(.opacity) }
@@ -139,11 +139,11 @@ private struct MusicOverview: View {
         ZStack {
             VStack(alignment: .leading, spacing: 0) {
                 Text(item.track != nil ? "MUSIC ARCHIVE  ／  \(model.collection.title)" : "MUSIC ARCHIVE  ／  私人收藏")
-                    .font(Theme.font(11)).tracking(1.2).foregroundStyle(pal.muted)
+                    .font(Theme.font(11)).tracking(1.2).foregroundStyle(pal.body)
                 HStack {
                     Text(String(format: "%@ %03d", item.track != nil ? "TRACK" : "PLAYLIST", model.sceneNumber))
                     Spacer()
-                    Text(item.track != nil ? "ONLINE" : "COLLECTION").font(Theme.font(10)).foregroundStyle(pal.muted)
+                    Text(item.track != nil ? "ONLINE" : "COLLECTION").font(Theme.font(10)).foregroundStyle(pal.body)
                 }.font(Theme.font(12)).tracking(0.8).padding(.top, 23)
                 Rectangle().fill(pal.ink.opacity(0.7)).frame(height: 1).padding(.top, 14)
                 Text(item.title).font(Theme.font(46, .semibold)).lineLimit(2).minimumScaleFactor(0.75)
@@ -156,7 +156,7 @@ private struct MusicOverview: View {
                         Text(track.album).lineLimit(1)
                         Text(track.time).monospacedDigit()
                     } else { Text("\(tracks.count) 首歌曲") }
-                }.font(Theme.font(12)).foregroundStyle(pal.muted).padding(.top, 25)
+                }.font(Theme.font(12)).foregroundStyle(pal.body).padding(.top, 25)
                 Button { model.open() } label: {
                     HStack { Text(item.track != nil ? "打开播放详情" : "打开歌单"); Spacer(); Text("↗").font(Theme.font(24)) }
                         .font(Theme.font(16)).padding(.vertical, 19)
@@ -175,7 +175,7 @@ private struct MusicOverview: View {
                 HStack(alignment: .firstTextBaseline, spacing: 15) {
                     Text(String(format: "%02d", model.sceneNumber)).font(Theme.font(58, .light)).contentTransition(.numericText())
                     Text("/ \(String(format: "%02d", item.track != nil ? tracks.count : library.collections.count))")
-                        .font(Theme.font(13)).foregroundStyle(pal.muted)
+                        .font(Theme.font(13)).foregroundStyle(pal.body)
                 }
             }.place(left: 60, bottom: 115)
             let rail = MusicRail.window(count: files.count, selected: files.firstIndex(of: model.selected) ?? 0)
@@ -191,7 +191,7 @@ private struct MusicOverview: View {
                         }.buttonStyle(RhineButtonStyle()).help(Archive.records[index].title)
                     }
                     Text(rail.upperBound < files.count ? "⋯" : "").frame(width: 12)
-                }.foregroundStyle(pal.muted).frame(width: 540, height: 40)
+                }.foregroundStyle(pal.body).frame(width: 540, height: 40)
                 ArrowButton(glyph: "↘", size: 26) { model.stepFile(1) }
             }.frame(width: 700, alignment: .leading).place(left: 505, bottom: 131)
             if Archive.columns.count > 1 {
@@ -202,7 +202,7 @@ private struct MusicOverview: View {
                 }.place(left: 1318, bottom: 135)
             }
             Text("拖动浏览    /    ↖ ↘ 同列歌曲    /    ↙ ↗ 切换歌单    /    ENTER 打开    /    SPACE 播放暂停")
-                .font(Theme.font(10)).foregroundStyle(pal.muted).place(left: 505, bottom: 60)
+                .font(Theme.font(10)).foregroundStyle(pal.body).place(left: 505, bottom: 60)
         }
     }
 }

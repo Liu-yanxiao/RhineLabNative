@@ -61,8 +61,8 @@ struct Stage: View {
                         MusicAtmosphere().opacity(model.dark ? 0 : (model.modal == nil ? 1 : 0.45))
                             .animation(.easeOut(duration: 0.25), value: model.modal).allowsHitTesting(false)
                         LinearGradient(stops: [.init(color: .clear, location: 0.5),
-                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.6) : Palette.light.paper.opacity(model.mode == .archive ? 0.24 : 0.6), location: 0.76),
-                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.9) : Palette.light.paper.opacity(model.mode == .archive ? 0.45 : 0.9), location: 1)],
+                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.6) : Palette.light.paper.opacity(0.6), location: 0.76),
+                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.9) : Palette.light.paper.opacity(0.9), location: 1)],
                                        startPoint: .leading, endPoint: .trailing).opacity(model.modal == nil ? 1 : 0)
                             .animation(.easeOut(duration: 0.25), value: model.modal).allowsHitTesting(false)
                         MusicStage()
@@ -113,19 +113,19 @@ struct Stage: View {
     }
 }
 
-/// A light edge treatment for the music shelf; keep its covers visible behind the terminal.
-/// Reference: RhineLabUI's archive-atmosphere (MIT, LICENSE-RhineLabUI).
+/// Reveal the upper shelf while preserving the reading margin beneath the bottom controls.
 private struct MusicAtmosphere: View {
     @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     var body: some View {
         ZStack {
-            LinearGradient(stops: [.init(color: pal.paper.opacity(0.35), location: 0),
-                                   .init(color: .clear, location: 0.38)], startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [.clear, pal.paper.opacity(0.16)], center: UnitPoint(x: 0.42, y: 0.47),
-                           startRadius: 360, endRadius: 1150)
-            LinearGradient(stops: [.init(color: pal.paper.opacity(0.28), location: 0),
-                                   .init(color: .clear, location: 0.16)], startPoint: .bottom, endPoint: .top)
+            LinearGradient(stops: [.init(color: pal.paper.opacity(0.12), location: 0),
+                                   .init(color: pal.paper.opacity(0.04), location: 0.12),
+                                   .init(color: .clear, location: 0.28)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: [.init(color: pal.paper, location: 0),
+                                   .init(color: pal.paper.opacity(0.92), location: 0.12),
+                                   .init(color: pal.paper.opacity(0.38), location: 0.26),
+                                   .init(color: .clear, location: 0.43)], startPoint: .bottom, endPoint: .top)
         }.opacity(model.mode == .detail ? 0.55 : 1)
     }
 }
