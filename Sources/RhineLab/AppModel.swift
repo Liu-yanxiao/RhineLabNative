@@ -398,6 +398,7 @@ final class AppModel: ObservableObject {
 
     func present(_ m: Modal) {
         guard mode != .boot, !viewerOpen else { return }
+        sceneView.cancelPointerInteraction()
         modal = m
         audio.play(.pageOpen)
     }

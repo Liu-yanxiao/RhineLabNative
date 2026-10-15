@@ -173,10 +173,12 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     private var drag = Drag.none
     private var browseInverse: SIMD4<Float>?
     private var browsing = false
+    private var caughtMomentum = false
+    private var browseVelocity = MusicShelfVelocity()
     func cancelPointerInteraction() {
-        if browsing { engine.endBrowse() }
+        engine.cancelBrowse()
         if case .inspect = drag { engine.endMusicInspection() }
-        drag = .none; browsing = false; browseInverse = nil
+        drag = .none; browsing = false; caughtMomentum = false; browseInverse = nil
     }
 
     /// Whichever simulation is on screen.
@@ -278,6 +280,12 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         let cpuStart = CACurrentMediaTime()
         let viewerOpen = viewer.isOpen
         if viewerOpen { viewer.tick(time: now, dt: dt) } else { engine.tick(time: now, dt: dt) }
+        if !viewerOpen, let selection = engine.takeMomentumSelection() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.canPick(), self.engine.isCurrent(selection) else { return }
+                self.onBrowseSelect?(selection.index, selection.cell)
+            }
+        }
         let tickEnd = CACurrentMediaTime()
         let animating = self.animating
         let idle = viewerOpen ? viewer.isMusicPlaybackOnly : engine.idleOnly
@@ -360,6 +368,8 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         }
         if viewer.isOpen { drag = event.modifierFlags.contains(.option) ? .pan : .orbit; return }
         if Experience.music && canPick() && bounds.width > 0 && bounds.height > 0 {
+            caughtMomentum = engine.beginBrowse()
+            browseVelocity.start(time: event.timestamp)
             let projection = engine.browseProjection(size: SIMD2(Float(bounds.width), Float(bounds.height)))
             let a = projection.lane, b = projection.row, determinant = a.x * b.y - b.x * a.y
             browseInverse = determinant.isFinite && abs(determinant) > 0.01 ? SIMD4(b.y, -b.x, -a.y, a.x) / determinant : nil
@@ -377,9 +387,10 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         case .browse:
             guard canPick(), let inverse = browseInverse else { cancelPointerInteraction(); return }
             let delta = SIMD2(Float(point.x - downPoint.x), Float(point.y - downPoint.y))
-            if !browsing && hypot(delta.x, delta.y) >= 8 { browsing = true; engine.beginBrowse() }
+            if !browsing && hypot(delta.x, delta.y) >= 8 { browsing = true }
             if browsing {
                 let cells = SIMD2(delta.x * inverse.x + delta.y * inverse.y, delta.x * inverse.z + delta.y * inverse.w)
+                browseVelocity.record(cells, time: event.timestamp)
                 if let (index, cell) = engine.moveBrowse(by: cells) { onBrowseSelect?(index, cell) }
                 wakeForSceneChange()
             }
@@ -391,7 +402,13 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if browsing { engine.endBrowse(); browsing = false; drag = .none; browseInverse = nil; return }
+        if case .browse = drag {
+            mouseDragged(with: event)
+            let moved = browsing || caughtMomentum
+            engine.endBrowse(velocity: browsing ? browseVelocity.released(at: event.timestamp) : .zero)
+            browsing = false; caughtMomentum = false; drag = .none; browseInverse = nil
+            if moved { return }
+        }
         if Experience.music, case .inspect = drag { engine.endMusicInspection() }
         drag = .none
         guard !viewer.isOpen else { return }

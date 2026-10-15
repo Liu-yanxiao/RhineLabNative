@@ -86,6 +86,50 @@ private final class ArtworkFixtureProtocol: URLProtocol {
         XCTAssertGreaterThan(selections, 0, "home drag must browse songs or columns")
         XCTAssertEqual(opens, 0)
     }
+    func testFastShelfDragContinuesForwardAfterRelease() throws {
+        let view = try view(); view.engine.targetReveal = 1; view.engine.idleDrift = false
+        for frame in 0..<480 { view.engine.tick(time: Double(frame) / 60, dt: 1.0 / 60) }
+        let projection = view.engine.browseProjection(size: SIMD2(1440, 810))
+        let delta = projection.lane * 0.2 + projection.row * 0.3
+        func event(_ type: NSEvent.EventType, _ fraction: Float, _ time: Double) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: CGPoint(x: 400 + Double(delta.x * fraction), y: 400 + Double(delta.y * fraction)),
+                               modifierFlags: [], timestamp: time, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        view.mouseDown(with: event(.leftMouseDown, 0, 8))
+        view.mouseDragged(with: event(.leftMouseDragged, 0.7, 8.01))
+        view.mouseDragged(with: event(.leftMouseDragged, 1, 8.03))
+        let released = view.engine.browsePosition
+        view.mouseUp(with: event(.leftMouseUp, 1, 8.031))
+        for frame in 1...3 { view.engine.tick(time: 8.031 + Double(frame) / 60, dt: 1.0 / 60) }
+        let continued = view.engine.browsePosition - released
+        print("release continuation in shelf cells: \(continued)")
+        XCTAssertGreaterThan(continued.x, 0.05, "a quick release should continue in the dragged direction before snapping")
+        XCTAssertGreaterThan(continued.y, 0.05)
+        for frame in 4..<600 { view.engine.tick(time: 8.031 + Double(frame) / 60, dt: 1.0 / 60) }
+        let stopped = view.engine.browsePosition
+        XCTAssertEqual(stopped.x, stopped.x.rounded(), accuracy: 0.001)
+        XCTAssertEqual(stopped.y, stopped.y.rounded(), accuracy: 0.001)
+        XCTAssertFalse(view.engine.isAnimating, "release inertia must eventually stop rendering")
+    }
+    func testMouseDownCatchesInertiaBeforeCrossingTheDragThreshold() throws {
+        let view = try view(); view.engine.targetReveal = 1; view.engine.idleDrift = false
+        for frame in 0..<480 { view.engine.tick(time: Double(frame) / 60, dt: 1.0 / 60) }
+        view.engine.beginBrowse(); _ = view.engine.moveBrowse(by: SIMD2(0.2, 0.3))
+        view.engine.endBrowse(velocity: SIMD2(1, 10))
+        view.engine.tick(time: 8.02, dt: 0.02)
+        let caught = view.engine.browsePosition
+        var clicks = 0
+        view.onSelect = { _, _ in clicks += 1 }
+        func event(_ type: NSEvent.EventType, _ time: Double) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: CGPoint(x: 400, y: 400), modifierFlags: [], timestamp: time,
+                               windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        view.mouseDown(with: event(.leftMouseDown, 8.03))
+        for frame in 1...10 { view.engine.tick(time: 8.03 + Double(frame) / 60, dt: 1.0 / 60) }
+        XCTAssertEqual(view.engine.browsePosition, caught)
+        view.mouseUp(with: event(.leftMouseUp, 8.2))
+        XCTAssertEqual(clicks, 0, "catching a moving shelf must not accidentally pick a different card")
+    }
     func testHeldInspectionFollowsThePointerWithinOneFrame() {
         let engine = ArchiveEngine(); engine.targetReveal = 1
         for frame in 0..<360 { engine.tick(time: Double(frame) / 60, dt: 1.0 / 60) }

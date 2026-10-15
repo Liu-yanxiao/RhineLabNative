@@ -46,6 +46,28 @@ final class ArchiveEngine {
     private var browseOrigin: SIMD2<Float>?
     private var browseTrack: SIMD2<Float>?
     private var browseSettling = false
+    private var browseMomentum: MusicShelfMomentum?
+    private var selectionRevision = 0
+    private var pendingMomentumSelection = false
+    struct BrowseSelection {
+        let index: Int
+        let cell: Cell
+        let revision: Int
+    }
+    func takeMomentumSelection() -> BrowseSelection? {
+        lock.lock(); defer { lock.unlock() }
+        guard pendingMomentumSelection else { return nil }
+        pendingMomentumSelection = false
+        return BrowseSelection(index: selectedIndex, cell: selectedCell, revision: selectionRevision)
+    }
+    func isCurrent(_ selection: BrowseSelection) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return selection.revision == selectionRevision && selection.cell == selectedCell
+    }
+    var browsePosition: SIMD2<Float> {
+        lock.lock(); defer { lock.unlock() }
+        return SIMD2(columnCamera.value / Loop.columnSpacing + 2, (-rail.value - 2.17) / Loop.rowSpacing + 15.5)
+    }
 
     /// Project the two shelf tracks into view points, so a drag follows the camera's diagonals.
     /// Adapted from LBEILC/RhineLabUI src/scene.ts (MIT, LICENSE-RhineLabUI).
@@ -60,16 +82,22 @@ final class ArchiveEngine {
         func track(_ vector: SIMD3<Float>) -> SIMD2<Float> { project(center + vector * 0.5) - project(center - vector * 0.5) }
         return (track(v3(-Loop.columnSpacing, 0, 0)), track(v3(0, 0, -Loop.rowSpacing)))
     }
-    func beginBrowse() {
+    @discardableResult func beginBrowse() -> Bool {
         lock.lock(); defer { lock.unlock() }
+        let caught = browseMomentum != nil
+        browseMomentum = nil; pendingMomentumSelection = false; selectionRevision += 1
         browseOrigin = SIMD2(columnCamera.value, rail.value); browseTrack = browseOrigin
         browseSettling = false; setHover(nil); wake()
+        return caught
     }
     func moveBrowse(by cells: SIMD2<Float>) -> (Int, Cell)? {
         lock.lock(); defer { lock.unlock() }
         guard let origin = browseOrigin, !targetDetail else { return nil }
         let track = origin + SIMD2(cells.x * Loop.columnSpacing, -cells.y * Loop.rowSpacing)
         browseTrack = track
+        return placeBrowse(at: track)
+    }
+    private func placeBrowse(at track: SIMD2<Float>) -> (Int, Cell)? {
         columnCamera = Motion.Spring(value: track.x); rail = Motion.Spring(value: track.y)
         lastInteraction = now; wake()
         let cell = Cell(lane: Int((track.x / Loop.columnSpacing + 2).rounded()),
@@ -79,10 +107,23 @@ final class ArchiveEngine {
         select(index, navigation: .cell(cell), time: now, preservingBrowse: true)
         return (index, cell)
     }
-    func endBrowse() {
+    func endBrowse(velocity: SIMD2<Float> = .zero) {
         lock.lock(); defer { lock.unlock() }
-        if browseTrack != nil { browseSettling = true }
+        guard browseTrack != nil else { return }
+        browseMomentum = MusicShelfMomentum(value: browsePosition, velocity: velocity, reduced: reduced)
         browseOrigin = nil; browseTrack = nil; wake()
+    }
+    func cancelBrowse() {
+        lock.lock(); defer { lock.unlock() }
+        browseMomentum = nil; browseOrigin = nil; browseTrack = nil; browseSettling = true
+        pendingMomentumSelection = false; selectionRevision += 1; wake()
+    }
+    private func advanceBrowseMomentum(dt: Float) {
+        guard var motion = browseMomentum else { return }
+        motion.step(dt: dt, reduced: reduced)
+        browseMomentum = motion.phase == .idle ? nil : motion
+        let track = SIMD2((motion.value.x - 2) * Loop.columnSpacing, -2.17 - (motion.value.y - 15.5) * Loop.rowSpacing)
+        if placeBrowse(at: track) != nil { pendingMomentumSelection = true }
     }
     private var returnY: Float?
     private var rotation: Float = 0
@@ -228,7 +269,10 @@ final class ArchiveEngine {
 
     func select(_ index: Int, navigation: ArchiveNavigation? = nil, time: Double, preservingBrowse: Bool = false) {
         lock.lock(); defer { lock.unlock() }
-        if !preservingBrowse { browseOrigin = nil; browseTrack = nil; browseSettling = false }
+        selectionRevision += 1
+        if !preservingBrowse {
+            browseOrigin = nil; browseTrack = nil; browseMomentum = nil; browseSettling = false; pendingMomentumSelection = false
+        }
         lastInteraction = time
         let cell = Loop.selectionCell(for: index, current: selectedCell, navigation: navigation)
         let changed = cell != selectedCell
@@ -265,6 +309,7 @@ final class ArchiveEngine {
     func setDetail(_ on: Bool, time: Double) {
         lock.lock(); defer { lock.unlock() }
         browseOrigin = nil; browseTrack = nil; browseSettling = false
+        browseMomentum = nil; pendingMomentumSelection = false; selectionRevision += 1
         targetDetail = on
         if on { pendingPulse = nil; decryptActive = true; decryptElapsed = nil; documentStart = nil; documentProgress = 0 }
         else { leaveDecryption() }
@@ -317,6 +362,7 @@ final class ArchiveEngine {
         rotation = targetDetail ? lerp(rotation, targetRotation, Experience.music ? inspectionBlend : blend)
                                 : Motion.returnStep(rotation, dt: dt, reduced: reduced)
 
+        advanceBrowseMomentum(dt: dt)
         coordinatesRebase()
         let chosen = cellPosition(selectedCell)
         let selRow = Float(selectedCell.row), selLane = Float(selectedCell.lane)
@@ -324,7 +370,7 @@ final class ArchiveEngine {
         laneFocus.damp(to: selLane, rate: reduced ? 35 : (Experience.music && targetDetail ? 9 : 4), dt: dt)
         if let track = browseTrack {
             columnCamera = Motion.Spring(value: track.x); rail = Motion.Spring(value: track.y)
-        } else {
+        } else if browseMomentum == nil {
             let rate: Float = reduced ? 35 : (Experience.music && (targetDetail || browseSettling) ? 9 : 3.7)
             columnCamera.damp(to: chosen.x, rate: rate, dt: dt)
             rail.damp(to: -2.17 - chosen.z, rate: rate, dt: dt)
@@ -515,7 +561,7 @@ final class ArchiveEngine {
 
     /// Keep logical coordinates small over very long sessions.
     private func coordinatesRebase() {
-        guard browseTrack == nil else { return }
+        guard browseTrack == nil && browseMomentum == nil else { return }
         let period = max(1, Archive.columns.count)
         let lane = abs(selectedCell.lane) > 2048 ? Int((Double(selectedCell.lane - 2) / Double(period)).rounded()) * period : 0
         func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
@@ -708,6 +754,7 @@ final class ArchiveEngine {
     private func updateActivity(idle: Bool, chosen: SIMD3<Float>) {
         var why: [String] = []
         if browseTrack != nil { why.append("browse") }
+        if browseMomentum != nil { why.append("inertia") }
         if abs(watermark.w - watermarkTarget.w) > 0.0001 { why.append("watermark") }
         let springs = [("lift", lift), ("rail", rail), ("shoulder", shoulder), ("laneFocus", laneFocus), ("columnCamera", columnCamera)]
         for (name, spring) in springs where abs(spring.velocity) > 0.0005 { why.append("v:" + name) }
