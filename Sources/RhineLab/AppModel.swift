@@ -92,6 +92,7 @@ final class AppModel: ObservableObject {
             if self?.hover != $0 { self?.hover = $0 }
         }
         sceneView.onSelect = { [weak self] index, cell in self?.select(index, navigation: .cell(cell)) }
+        sceneView.onBrowseSelect = { [weak self] index, cell in self?.select(index, navigation: .cell(cell), sceneAlreadySelected: true) }
         sceneView.onOpen = { [weak self] in self?.open() }
         sceneView.onStep = { [weak self] direction in
             guard let self else { return }
@@ -142,7 +143,10 @@ final class AppModel: ObservableObject {
             clickPoint = CGPoint(x: p.x / sceneView.bounds.width * 1920, y: (1 - p.y / sceneView.bounds.height) * 1080)
             clickID += 1
         }
-        guard modal == nil, (event.window ?? NSApp.keyWindow) === sceneView.window else { pointerDrag = false; rightPointerDrag = false; return false }
+        guard modal == nil, (event.window ?? NSApp.keyWindow) === sceneView.window else {
+            if pointerDrag || rightPointerDrag { sceneView.cancelPointerInteraction() }
+            pointerDrag = false; rightPointerDrag = false; return false
+        }
         let point = sceneView.convert(event.locationInWindow, from: nil)
         let bounds = sceneView.bounds
         guard bounds.width > 0, bounds.height > 0 else { return false }
@@ -336,7 +340,7 @@ final class AppModel: ObservableObject {
         finishBoot()
     }
 
-    func select(_ index: Int, navigation: ArchiveNavigation? = nil) {
+    func select(_ index: Int, navigation: ArchiveNavigation? = nil, sceneAlreadySelected: Bool = false) {
         guard mode != .boot else { return }
         let index = (index + records.count) % records.count
         let keepDetail = Experience.music && mode == .detail
@@ -350,7 +354,7 @@ final class AppModel: ObservableObject {
         if Experience.music { musicPresentation.select(index) }
         columnMemory[lane] = index
         tab = 0
-        engine.select(index, navigation: navigation, time: now)
+        if !sceneAlreadySelected { engine.select(index, navigation: navigation, time: now) }
         if keepDetail { engine.setDetail(true, time: now) }
         if Experience.music {
             if viewer.isOpen { viewer.selectLabel(index) }

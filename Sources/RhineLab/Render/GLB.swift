@@ -19,8 +19,8 @@ struct GLBMesh {
 enum GLB {
     enum LoadError: Error { case malformed(String) }
 
-    static func load(resource: String) throws -> [GLBMesh] {
-        guard let url = Bundle.main.url(forResource: resource, withExtension: "glb") else {
+    static func load(resource: String, directory: URL? = nil) throws -> [GLBMesh] {
+        guard let url = directory?.appendingPathComponent(resource + ".glb") ?? Bundle.main.url(forResource: resource, withExtension: "glb") else {
             throw LoadError.malformed("missing \(resource).glb")
         }
         return try parse(Data(contentsOf: url))

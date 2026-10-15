@@ -43,6 +43,47 @@ final class ArchiveEngine {
     // Selection
     private(set) var selectedIndex = 0
     private var selectedCell = Cell(lane: 2, row: 12)
+    private var browseOrigin: SIMD2<Float>?
+    private var browseTrack: SIMD2<Float>?
+    private var browseSettling = false
+
+    /// Project the two shelf tracks into view points, so a drag follows the camera's diagonals.
+    /// Adapted from LBEILC/RhineLabUI src/scene.ts (MIT, LICENSE-RhineLabUI).
+    func browseProjection(size: SIMD2<Float>) -> (lane: SIMD2<Float>, row: SIMD2<Float>) {
+        lock.lock(); defer { lock.unlock() }
+        let frame = makeFrame(aspect: size.x / size.y), matrix = frame.proj * frame.view
+        let center = selectedPose.position + v3(0, 1.85, 0)
+        func project(_ p: SIMD3<Float>) -> SIMD2<Float> {
+            let clip = matrix * SIMD4(p, 1)
+            return SIMD2(clip.x / clip.w, clip.y / clip.w) * size * 0.5
+        }
+        func track(_ vector: SIMD3<Float>) -> SIMD2<Float> { project(center + vector * 0.5) - project(center - vector * 0.5) }
+        return (track(v3(-Loop.columnSpacing, 0, 0)), track(v3(0, 0, -Loop.rowSpacing)))
+    }
+    func beginBrowse() {
+        lock.lock(); defer { lock.unlock() }
+        browseOrigin = SIMD2(columnCamera.value, rail.value); browseTrack = browseOrigin
+        browseSettling = false; setHover(nil); wake()
+    }
+    func moveBrowse(by cells: SIMD2<Float>) -> (Int, Cell)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let origin = browseOrigin, !targetDetail else { return nil }
+        let track = origin + SIMD2(cells.x * Loop.columnSpacing, -cells.y * Loop.rowSpacing)
+        browseTrack = track
+        columnCamera = Motion.Spring(value: track.x); rail = Motion.Spring(value: track.y)
+        lastInteraction = now; wake()
+        let cell = Cell(lane: Int((track.x / Loop.columnSpacing + 2).rounded()),
+                        row: Int(((-track.y - 2.17) / Loop.rowSpacing + 15.5).rounded()))
+        guard cell != selectedCell else { return nil }
+        let index = Archive.file(at: cell)
+        select(index, navigation: .cell(cell), time: now, preservingBrowse: true)
+        return (index, cell)
+    }
+    func endBrowse() {
+        lock.lock(); defer { lock.unlock() }
+        if browseTrack != nil { browseSettling = true }
+        browseOrigin = nil; browseTrack = nil; wake()
+    }
     private var returnY: Float?
     private var rotation: Float = 0
     private var targetRotation: Float = 0
@@ -185,8 +226,9 @@ final class ArchiveEngine {
 
     // MARK: Selection
 
-    func select(_ index: Int, navigation: ArchiveNavigation? = nil, time: Double) {
+    func select(_ index: Int, navigation: ArchiveNavigation? = nil, time: Double, preservingBrowse: Bool = false) {
         lock.lock(); defer { lock.unlock() }
+        if !preservingBrowse { browseOrigin = nil; browseTrack = nil; browseSettling = false }
         lastInteraction = time
         let cell = Loop.selectionCell(for: index, current: selectedCell, navigation: navigation)
         let changed = cell != selectedCell
@@ -222,6 +264,7 @@ final class ArchiveEngine {
 
     func setDetail(_ on: Bool, time: Double) {
         lock.lock(); defer { lock.unlock() }
+        browseOrigin = nil; browseTrack = nil; browseSettling = false
         targetDetail = on
         if on { pendingPulse = nil; decryptActive = true; decryptElapsed = nil; documentStart = nil; documentProgress = 0 }
         else { leaveDecryption() }
@@ -265,7 +308,7 @@ final class ArchiveEngine {
             targetRotation = 0; targetPitch = 0; targetZoom = 1
             inspectionReturning = true; inspectionInputTime = nil
         }
-        let inspectionBlend = reduced ? 1 : 1 - exp(-(inspectionReturning ? 1.8 : 7) * dt)
+        let inspectionBlend = reduced ? 1 : 1 - exp(-(inspectionReturning ? 1.8 : (inspectionHeld ? 30 : 12)) * dt)
         inspectionPitch = lerp(inspectionPitch, targetDetail ? targetPitch : 0, inspectionBlend)
         inspectionZoom = lerp(inspectionZoom, targetDetail ? targetZoom : 1, inspectionBlend)
         musicGain = lerp(musicGain, musicPlaying && !reduced ? 1 : 0, 1 - exp(-dt * 5))
@@ -279,8 +322,14 @@ final class ArchiveEngine {
         let selRow = Float(selectedCell.row), selLane = Float(selectedCell.lane)
         shoulder.damp(to: selRow, rate: reduced ? 35 : (Experience.music && targetDetail ? 9 : 5), dt: dt)
         laneFocus.damp(to: selLane, rate: reduced ? 35 : (Experience.music && targetDetail ? 9 : 4), dt: dt)
-        columnCamera.damp(to: chosen.x, rate: reduced ? 35 : (Experience.music && targetDetail ? 9 : 3.7), dt: dt)
-        rail.damp(to: -2.17 - chosen.z, rate: reduced ? 35 : (Experience.music && targetDetail ? 9 : 3.7), dt: dt)
+        if let track = browseTrack {
+            columnCamera = Motion.Spring(value: track.x); rail = Motion.Spring(value: track.y)
+        } else {
+            let rate: Float = reduced ? 35 : (Experience.music && (targetDetail || browseSettling) ? 9 : 3.7)
+            columnCamera.damp(to: chosen.x, rate: rate, dt: dt)
+            rail.damp(to: -2.17 - chosen.z, rate: rate, dt: dt)
+            if abs(columnCamera.value - chosen.x) + abs(rail.value + 2.17 + chosen.z) < 0.001 { browseSettling = false }
+        }
 
         let trackX = columnCamera.value
         let centerLane = Double(columnCamera.value / Loop.columnSpacing + 2)
@@ -466,6 +515,7 @@ final class ArchiveEngine {
 
     /// Keep logical coordinates small over very long sessions.
     private func coordinatesRebase() {
+        guard browseTrack == nil else { return }
         let period = max(1, Archive.columns.count)
         let lane = abs(selectedCell.lane) > 2048 ? Int((Double(selectedCell.lane - 2) / Double(period)).rounded()) * period : 0
         func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? a : gcd(b, a % b) }
@@ -657,6 +707,7 @@ final class ArchiveEngine {
 
     private func updateActivity(idle: Bool, chosen: SIMD3<Float>) {
         var why: [String] = []
+        if browseTrack != nil { why.append("browse") }
         if abs(watermark.w - watermarkTarget.w) > 0.0001 { why.append("watermark") }
         let springs = [("lift", lift), ("rail", rail), ("shoulder", shoulder), ("laneFocus", laneFocus), ("columnCamera", columnCamera)]
         for (name, spring) in springs where abs(spring.velocity) > 0.0005 { why.append("v:" + name) }

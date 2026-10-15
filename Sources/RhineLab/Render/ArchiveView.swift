@@ -9,65 +9,115 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     let engine: ArchiveEngine
     let viewer: ViewerEngine
     let renderer: MetalRenderer
+    private let artworkSession: URLSession
     var onHover: ((Int?) -> Void)?
     var onSelect: ((Int, Cell) -> Void)?
+    var onBrowseSelect: ((Int, Cell) -> Void)?
     var onOpen: (() -> Void)?
     /// Wheel over the array: +1 next file, −1 previous.
     var onStep: ((Int) -> Void)?
     var onStepColumn: ((Int) -> Void)?
     var canPick: () -> Bool = { true }
     func wakeForSceneChange() { lastTimestamp = 0; settleFrames = 3; link?.isPaused = false }
-    private struct ArtworkRequest: Equatable { let index: Int; let url: URL; let high: Bool }
+    private struct ArtworkRequest: Hashable { let index: Int; let url: URL; let high: Bool }
     private var artworkTasks: [Int: Task<Void, Never>] = [:]
     private var artworkTickets: [Int: UUID] = [:]
     private var runningArtwork: [Int: ArtworkRequest] = [:]
     private var pendingArtwork: [ArtworkRequest] = []
     private var artworkRevision = 0
+    private var artworkURLs: [Int: URL] = [:]
+    private var selectedArtwork = 0
+    private var highArtwork = false
+    private var visibleArtwork: Set<Int>?
+    private var failedArtwork: [ArtworkRequest: Date] = [:]
+    private let artworkDemandLock = NSLock()
+    private var scheduledArtworkDemand: Set<Int>?
     func clearMusicArtwork() {
         artworkRevision += 1
         artworkTasks.values.forEach { $0.cancel() }; artworkTasks.removeAll(); artworkTickets.removeAll()
         runningArtwork.removeAll(); pendingArtwork.removeAll(); MusicArtwork.clear()
+        artworkURLs.removeAll(); failedArtwork.removeAll(); visibleArtwork = nil
+        artworkDemandLock.lock(); scheduledArtworkDemand = nil; artworkDemandLock.unlock()
     }
     func prepareMusicArtwork(selected: Int, urls: [Int: URL], high: Bool = false) {
+        selectedArtwork = selected; artworkURLs = urls; highArtwork = high
         if let old = MusicArtwork.setHero(high ? selected : nil) { renderer.invalidateLabel(old) }
-        let order = [selected] + urls.keys.filter { $0 != selected }.sorted { abs($0 - selected) < abs($1 - selected) }
-        let requests = order.compactMap { index in urls[index].map { ArtworkRequest(index: index, url: $0, high: high && index == selected) } }
+        refreshArtworkRequests(); wakeForSceneChange()
+    }
+    private func refreshArtworkRequests() {
+        let selected = selectedArtwork, urls = artworkURLs
+        let needed = (visibleArtwork ?? Set(urls.keys)).union([selected])
+        MusicArtwork.retainVisible((visibleArtwork ?? []).union([selected]))
+        let order = [selected] + needed.filter { $0 != selected }.sorted { abs($0 - selected) < abs($1 - selected) }
+        let requests = order.compactMap { index in urls[index].map { ArtworkRequest(index: index, url: $0, high: highArtwork && index == selected) } }
         for index in Array(runningArtwork.keys) where !requests.contains(runningArtwork[index]!) {
             artworkTasks.removeValue(forKey: index)?.cancel(); artworkTickets[index] = nil; runningArtwork[index] = nil
         }
         pendingArtwork = []
         for request in requests {
+            if let failed = failedArtwork[request], Date().timeIntervalSince(failed) < 30 { continue }
+            if MusicArtwork.image(request.index) != nil && (!request.high || MusicArtwork.cached(request.url, high: true) != nil) { continue }
             if let image = MusicArtwork.cached(request.url, high: request.high) {
                 let old = MusicArtwork.image(request.index)
                 MusicArtwork.store(image, index: request.index, high: request.high)
                 if old !== MusicArtwork.image(request.index) { renderer.invalidateLabel(request.index) }
             } else if runningArtwork[request.index] == nil { pendingArtwork.append(request) }
         }
-        pumpArtwork(); wakeForSceneChange()
+        pumpArtwork()
+    }
+    /// Only changes to the visible set cross to the main thread, not every rendered frame.
+    private func updateArtworkDemand(_ frame: RenderFrame) {
+        guard Experience.music else { return }
+        let indices = Set(frame.arrayLabels + frame.cards.filter { $0.quality > 0.001 }.map(\.labelIndex))
+        artworkDemandLock.lock()
+        let changed = indices != scheduledArtworkDemand
+        if changed { scheduledArtworkDemand = indices }
+        artworkDemandLock.unlock()
+        if changed {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.visibleArtwork = indices; self.refreshArtworkRequests()
+            }
+        }
     }
     private func pumpArtwork() {
         while artworkTasks.count < 3, !pendingArtwork.isEmpty {
             let request = pendingArtwork.removeFirst(), revision = artworkRevision, ticket = UUID()
             artworkTickets[request.index] = ticket; runningArtwork[request.index] = request
             artworkTasks[request.index] = Task { [weak self] in
-                do {
-                    let (data, response) = try await URLSession.shared.data(from: request.url)
+                defer {
+                    if let self, self.artworkRevision == revision, self.artworkTickets[request.index] == ticket {
+                        self.artworkTasks[request.index] = nil; self.artworkTickets[request.index] = nil; self.runningArtwork[request.index] = nil
+                        self.pumpArtwork()
+                    }
+                }
+                for attempt in 0..<3 {
+                  do {
+                    guard let session = self?.artworkSession else { return }
+                    if attempt > 0 { try await Task.sleep(for: .milliseconds(250 * attempt)) }
+                    let (data, response) = try await session.data(for: URLRequest(url: request.url, timeoutInterval: 12))
                     try Task.checkCancellation()
-                    guard data.count < 12_000_000, (response as? HTTPURLResponse)?.statusCode == 200 else { throw MusicFailure.message("封面暂不可用") }
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    if status == 429 || status >= 500 { throw URLError(.resourceUnavailable) }
+                    guard data.count < 12_000_000, status == 200 else { break }
                     let decoded = await Task.detached(priority: .utility) {
                         (MusicArtwork.thumbnail(data), request.high ? MusicArtwork.thumbnail(data, maxPixelSize: 1536) : nil)
                     }.value
                     try Task.checkCancellation()
-                    guard let self, self.artworkRevision == revision, self.artworkTickets[request.index] == ticket, let gallery = decoded.0 else { return }
+                    guard let self, self.artworkRevision == revision, self.artworkTickets[request.index] == ticket else { return }
+                    guard let gallery = decoded.0 else { break }
                     MusicArtwork.cache(gallery, url: request.url); MusicArtwork.store(gallery, index: request.index)
                     if let hero = decoded.1 {
                         MusicArtwork.cache(hero, url: request.url, high: true); MusicArtwork.store(hero, index: request.index, high: true)
                     }
                     self.renderer.invalidateLabel(request.index); self.engine.wake(); self.viewer.wake(); self.wakeForSceneChange()
-                } catch { }
-                guard let self, self.artworkRevision == revision, self.artworkTickets[request.index] == ticket else { return }
-                self.artworkTasks[request.index] = nil; self.artworkTickets[request.index] = nil; self.runningArtwork[request.index] = nil
-                self.pumpArtwork()
+                    return
+                  } catch {
+                    if Task.isCancelled { return }
+                    if !(error is URLError) { break }
+                  }
+                }
+                if let self, self.artworkRevision == revision, self.artworkTickets[request.index] == ticket { self.failedArtwork[request] = Date() }
             }
         }
     }
@@ -119,16 +169,24 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     private let stats = FrameStats()
     private var downPoint = CGPoint.zero
     private var lastDragPoint = CGPoint.zero
-    private enum Drag { case none, inspect, orbit, pan }
+    private enum Drag { case none, browse, inspect, orbit, pan }
     private var drag = Drag.none
+    private var browseInverse: SIMD4<Float>?
+    private var browsing = false
+    func cancelPointerInteraction() {
+        if browsing { engine.endBrowse() }
+        if case .inspect = drag { engine.endMusicInspection() }
+        drag = .none; browsing = false; browseInverse = nil
+    }
 
     /// Whichever simulation is on screen.
     private var animating: Bool { viewer.isOpen ? viewer.isAnimating : engine.isAnimating }
 
-    init(engine: ArchiveEngine, viewer: ViewerEngine, renderer: MetalRenderer) {
+    init(engine: ArchiveEngine, viewer: ViewerEngine, renderer: MetalRenderer, artworkSession: URLSession = .shared) {
         self.engine = engine
         self.viewer = viewer
         self.renderer = renderer
+        self.artworkSession = artworkSession
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -245,6 +303,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         let drawable = update.drawable
         let aspect = Float(drawable.texture.width) / Float(drawable.texture.height)
         var frame = viewerOpen ? viewer.makeFrame(aspect: aspect) : engine.makeFrame(aspect: aspect)
+        updateArtworkDemand(frame)
         frame.effectsOff |= Self.adaptiveEffectsOff(level: level, moving: moving)
         renderer.render(frame, to: drawable.texture, present: drawable)
         if moving { adapt(link) }
@@ -300,6 +359,12 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
             if canPick(), let (index, cell) = card(at: downPoint) { onSelect?(index, cell); onOpen?(); drag = .none; return }
         }
         if viewer.isOpen { drag = event.modifierFlags.contains(.option) ? .pan : .orbit; return }
+        if Experience.music && canPick() && bounds.width > 0 && bounds.height > 0 {
+            let projection = engine.browseProjection(size: SIMD2(Float(bounds.width), Float(bounds.height)))
+            let a = projection.lane, b = projection.row, determinant = a.x * b.y - b.x * a.y
+            browseInverse = determinant.isFinite && abs(determinant) > 0.01 ? SIMD4(b.y, -b.x, -a.y, a.x) / determinant : nil
+            browsing = false; drag = .browse; return
+        }
         drag = engine.canInspect ? .inspect : .none
         if Experience.music, case .inspect = drag { engine.beginMusicInspection() }
     }
@@ -309,6 +374,15 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         let dx = Float(point.x - lastDragPoint.x), dy = Float(lastDragPoint.y - point.y), h = Float(bounds.height)
         lastDragPoint = point
         switch drag {
+        case .browse:
+            guard canPick(), let inverse = browseInverse else { cancelPointerInteraction(); return }
+            let delta = SIMD2(Float(point.x - downPoint.x), Float(point.y - downPoint.y))
+            if !browsing && hypot(delta.x, delta.y) >= 8 { browsing = true; engine.beginBrowse() }
+            if browsing {
+                let cells = SIMD2(delta.x * inverse.x + delta.y * inverse.y, delta.x * inverse.z + delta.y * inverse.w)
+                if let (index, cell) = engine.moveBrowse(by: cells) { onBrowseSelect?(index, cell) }
+                wakeForSceneChange()
+            }
         case .inspect: if Experience.music { engine.inspect(dx: dx, dy: dy) } else { engine.rotate(by: dx * 0.004) }
         case .orbit: viewer.orbit(dx: dx, dy: dy, viewHeight: h)
         case .pan: viewer.pan(dx: dx, dy: dy, viewHeight: h)
@@ -317,6 +391,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if browsing { engine.endBrowse(); browsing = false; drag = .none; browseInverse = nil; return }
         if Experience.music, case .inspect = drag { engine.endMusicInspection() }
         drag = .none
         guard !viewer.isOpen else { return }

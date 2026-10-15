@@ -201,7 +201,7 @@ private struct MusicOverview: View {
                     ArrowButton(glyph: "↗", size: 25) { model.stepColumn(1) }
                 }.place(left: 1318, bottom: 135)
             }
-            Text("↖ ↘ 同列歌曲    /    ↙ ↗ 切换歌单    /    ENTER 打开    /    SPACE 播放暂停")
+            Text("拖动浏览    /    ↖ ↘ 同列歌曲    /    ↙ ↗ 切换歌单    /    ENTER 打开    /    SPACE 播放暂停")
                 .font(Theme.font(10)).foregroundStyle(pal.muted).place(left: 505, bottom: 60)
         }
     }

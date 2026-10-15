@@ -187,14 +187,14 @@ final class MetalRenderer {
         return x
     }
 
-    init?(device: MTLDevice? = MTLCreateSystemDefaultDevice(), compositeFormat: MTLPixelFormat = .bgra8Unorm) {
+    init?(device: MTLDevice? = MTLCreateSystemDefaultDevice(), compositeFormat: MTLPixelFormat = .bgra8Unorm, modelDirectory: URL? = nil) {
         guard let device, let queue = device.makeCommandQueue() else { return nil }
         self.device = device
         self.queue = queue
         self.compositeFormat = compositeFormat
         do {
             try buildPipelines()
-            try loadGeometry()
+            try loadGeometry(directory: modelDirectory)
             try buildEnvironment()
             buildWatermark()
         } catch {
@@ -350,8 +350,8 @@ final class MetalRenderer {
         cb.waitUntilCompleted()
     }
 
-    private func loadGeometry() throws {
-        let meshes = try GLB.load(resource: Experience.music ? "music-cd" : "archive-cassette").map { mesh -> GLBMesh in
+    private func loadGeometry(directory: URL?) throws {
+        let meshes = try GLB.load(resource: Experience.music ? "music-cd" : "archive-cassette", directory: directory).map { mesh -> GLBMesh in
             guard Experience.music else { return mesh }
             return MusicGeometry.fitted(mesh)
         }
@@ -360,7 +360,7 @@ final class MetalRenderer {
         // The same card split into assembly parts for the 360° viewer.
         if Experience.music { assemblyMeshes = cardMeshes.map { ("cover", $0) } }
         else {
-            assemblyMeshes = try GLB.load(resource: "archive-assembly")
+            assemblyMeshes = try GLB.load(resource: "archive-assembly", directory: directory)
                 .filter { !Surfaces.hidden.contains($0.materialName) }
                 .map { ($0.part ?? "cover", GPUMesh(device: device, glb: $0)) }
         }
@@ -384,6 +384,7 @@ final class MetalRenderer {
     /// Label textures are built off the render thread; a label that is not ready yet is skipped.
     private let labelLock = NSLock()
     private var labelsBuilding: Set<Int> = []
+    private var dirtyLabels: Set<Int> = []
     private var labelRevision = 0
     private var labelOrder: [Int] = []
     private var visibleLabels: Set<Int> = []
@@ -391,13 +392,12 @@ final class MetalRenderer {
     var readyLabelIndices: Set<Int> { labelLock.lock(); defer { labelLock.unlock() }; return Set(labelTextures.keys) }
     func invalidateLabel(_ index: Int) {
         labelLock.lock(); defer { labelLock.unlock() }
-        labelVersions[index, default: 0] += 1; labelTextures[index] = nil; labelsBuilding.remove(index)
-        labelOrder.removeAll { $0 == index }
+        labelVersions[index, default: 0] += 1; dirtyLabels.insert(index); labelsBuilding.remove(index)
         LabelImage.invalidate(index)
     }
 
     func clearLabels() {
-        labelLock.lock(); labelRevision += 1; labelTextures.removeAll(); labelsBuilding.removeAll(); labelOrder.removeAll(); labelVersions.removeAll(); visibleLabels.removeAll(); labelLock.unlock()
+        labelLock.lock(); labelRevision += 1; labelTextures.removeAll(); labelsBuilding.removeAll(); dirtyLabels.removeAll(); labelOrder.removeAll(); labelVersions.removeAll(); visibleLabels.removeAll(); labelLock.unlock()
         LabelImage.clear()
     }
 
@@ -411,13 +411,13 @@ final class MetalRenderer {
 
     private func labelTexture(_ index: Int) -> MTLTexture? {
         labelLock.lock(); defer { labelLock.unlock() }
-        if let t = labelTextures[index] { return t }
+        if let t = labelTextures[index], !dirtyLabels.contains(index) { return t }
         if !labelsBuilding.contains(index) {
             labelsBuilding.insert(index)
             let revision = labelRevision, version = labelVersions[index, default: 0]
             DispatchQueue.global(qos: .userInitiated).async { [self] in buildLabel(index, revision: revision, version: version) }
         }
-        return nil
+        return labelTextures[index]
     }
 
     func preloadLabels(count: Int) {
@@ -448,7 +448,7 @@ final class MetalRenderer {
             cb.addCompletedHandler { [self] _ in
                 labelLock.lock()
                 if (revision == nil || revision == labelRevision) && version == labelVersions[index, default: 0] {
-                    labelTextures[index] = t; labelsBuilding.remove(index)
+                    labelTextures[index] = t; labelsBuilding.remove(index); dirtyLabels.remove(index)
                     labelOrder.removeAll { $0 == index }; labelOrder.append(index)
                     trimLabels()
                 }

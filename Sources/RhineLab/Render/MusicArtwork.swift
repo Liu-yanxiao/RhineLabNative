@@ -12,6 +12,17 @@ enum MusicArtwork {
     private static var highOrder: [URL] = []
     private static var heroIndex: Int?
     private static var heroImage: CGImage?
+    private static var visible: Set<Int> = []
+    /// Keep current-frame covers resident even when a large playlist exceeds the idle budget.
+    static func retainVisible(_ indices: Set<Int>) {
+        lock.lock(); defer { lock.unlock() }
+        visible = indices; trim()
+    }
+    private static func trim() {
+        while order.count > 24, let position = order.firstIndex(where: { !visible.contains($0) }) {
+            images.removeValue(forKey: order.remove(at: position))
+        }
+    }
     static func image(_ index: Int) -> CGImage? { lock.lock(); defer { lock.unlock() }; return heroIndex == index ? heroImage ?? images[index] : images[index] }
     static func cached(_ url: URL, high: Bool = false) -> CGImage? { lock.lock(); defer { lock.unlock() }; return high ? highImages[url] : cachedImages[url] }
     static func setHero(_ index: Int?) -> Int? {
@@ -29,13 +40,13 @@ enum MusicArtwork {
             while cachedOrder.count > 24 { cachedImages.removeValue(forKey: cachedOrder.removeFirst()) }
         }
     }
-    static func clear() { lock.lock(); images.removeAll(); order.removeAll(); heroIndex = nil; heroImage = nil; lock.unlock() }
+    static func clear() { lock.lock(); images.removeAll(); order.removeAll(); visible.removeAll(); heroIndex = nil; heroImage = nil; lock.unlock() }
     static func remove(_ index: Int) { lock.lock(); images.removeValue(forKey: index); order.removeAll { $0 == index }; if heroIndex == index { heroImage = nil }; lock.unlock() }
     static func store(_ image: CGImage, index: Int, high: Bool = false) {
         lock.lock(); defer { lock.unlock() }
         if high { if heroIndex == index { heroImage = image }; return }
         images[index] = image; order.removeAll { $0 == index }; order.append(index)
-        while order.count > 24 { images.removeValue(forKey: order.removeFirst()) }
+        trim()
     }
     static func thumbnail(_ data: Data, maxPixelSize: Int = 512) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
