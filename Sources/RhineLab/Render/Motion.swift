@@ -32,9 +32,15 @@ enum Motion {
         0.25 + 0.75 * bell(lane - focus, 0.55)
     }
 
-    static func idleWave(row: Float, lane: Float, time: Float) -> Float {
-        0.075 * sin(time * .pi * 2 / 8 + row * 0.3 - lane * 0.45)
-            + 0.027 * sin(time * .pi * 2 / 13 - row * 0.17 + lane * 0.3)
+    /// Reduce a double-precision clock to one cycle before converting to GPU/geometry precision.
+    /// Converting uptime to Float first quantizes motion to 125 ms after about twelve days.
+    static func phase(time: Double, period: Double) -> Float {
+        Float(time.truncatingRemainder(dividingBy: period) * (2 * Double.pi / period))
+    }
+
+    static func idleWave(row: Float, lane: Float, time: Double) -> Float {
+        0.075 * sin(phase(time: time, period: 8) + row * 0.3 - lane * 0.45)
+            + 0.027 * sin(phase(time: time, period: 13) - row * 0.17 + lane * 0.3)
     }
 
     /// Critically damped spring step (same integrator as the web version).

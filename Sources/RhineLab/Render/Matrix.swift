@@ -50,6 +50,7 @@ struct AssemblyDraw {
     var clarity: Float      // 0 = frosted cover, 1 = clear
     var labelIndex: Int
     var theme: Float = 0
+    var offset = SIMD3<Float>(repeating: 0)
 }
 
 struct RenderFrame {
@@ -62,7 +63,9 @@ struct RenderFrame {
     var arrayCards: [SIMD4<Float>] = []
     /// Dark-theme amount per array card, parallel to `arrayCards` (empty = all light).
     var arrayTheme: [Float] = []
+    var arrayLabels: [Int] = []
     var cards: [CardDraw] = []
+    var arrayPrints: [CardDraw] = []
     /// When set, the assembly is drawn alone (no floor, array or extracted cards).
     var assembly: AssemblyDraw? = nil
     /// Background colour as displayed (sRGB 0...1); the renderer solves the linear value.
@@ -79,4 +82,7 @@ struct RenderFrame {
     /// Bit 2 = skip ambient occlusion, bit 4 = skip depth of field (used by adaptive quality).
     var effectsOff: Int = 0
     var time: Float = 0
+    /// Screen-normalized center, width and opacity of the lowest page decoration.
+    var watermark = SIMD4<Float>(repeating: 0)
+    var watermarkBehindScene = true
 }

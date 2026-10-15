@@ -3,7 +3,7 @@ import CoreText
 
 enum Theme {
     static let ink = Color(red: 0.031, green: 0.039, blue: 0.031)        // #080a08
-    static let paper = Color(red: 0.91, green: 0.898, blue: 0.882)       // #e8e5e1
+    static let paper = Color(hex: 0xedebe6)
     static let muted = Color(red: 0.467, green: 0.459, blue: 0.427)      // #77756d
     static let faint = Color(red: 0.522, green: 0.502, blue: 0.467)      // #858077
     static let accent = Color(red: 0.608, green: 0.447, blue: 0.278)     // #9b7247
@@ -42,10 +42,10 @@ struct Palette {
 
     static let light = Palette(
         ink: Color(hex: 0x080a08), muted: Color(hex: 0x77756d), body: Color(hex: 0x5a584e), index: Color(hex: 0xa38e72),
-        line: Color(hex: 0xaaa59a), paper: Color(hex: 0xeae5e1), panel: Color(hex: 0xedebe4), panelEdge: Color(hex: 0xf7f5ee),
+        line: Color(hex: 0xaaa59a), paper: Color(hex: 0xedebe6), panel: Color(hex: 0xefede7), panelEdge: Color(hex: 0xf7f5ee),
         field: Color(hex: 0xe7e3d9), accent: Color(hex: 0x9b7247), statusLight: Color(hex: 0x777b60),
         solid: Color(hex: 0x252820), onSolid: Color(hex: 0xf0eee5), toast: Color(hex: 0x30362a), onToast: Color(hex: 0xf1efdf),
-        flash: .white, contour: .white, bootInner: Color(hex: 0xe7e7e1), bootOuter: Color(hex: 0xe3e1dc), bootRim: Color(hex: 0xe4dfdb),
+        flash: .white, contour: .white, bootInner: Color(hex: 0xedebe6), bootOuter: Color(hex: 0xe8e6e1), bootRim: Color(hex: 0xe7e3dd),
         shadow: Color(hex: 0x63513a, opacity: 0.125), switchOn: Color(hex: 0x565c46))
 
     static let dark = Palette(
@@ -55,6 +55,15 @@ struct Palette {
         solid: Color(hex: 0xe0e3dc), onSolid: Color(hex: 0x11181b), toast: Color(hex: 0x202a2f), onToast: Color(hex: 0xe0e3dc),
         flash: Color(hex: 0x11181b), contour: Color(hex: 0x536166), bootInner: Color(hex: 0x202a2f), bootOuter: Color(hex: 0x11181b), bootRim: Color(hex: 0x11181b),
         shadow: Color.black.opacity(0.2), switchOn: Color(hex: 0xc5a16b))
+    static let musicDark = Palette(
+        ink: Color(hex: 0xe9eef2), muted: Color(hex: 0x9caabd), body: Color(hex: 0x9caabd), index: Color(hex: 0xd9ad7d),
+        line: Color(hex: 0xd0e2f3, opacity: 0.2), paper: Color(hex: 0x07111f), panel: Color(hex: 0x111b2a), panelEdge: Color(hex: 0x293f57),
+        field: Color(hex: 0x162234), accent: Color(hex: 0xd9ad7d), statusLight: Color(hex: 0xe9eef2),
+        solid: Color(hex: 0xe9eef2), onSolid: Color(hex: 0x08121f), toast: Color(hex: 0x162234), onToast: Color(hex: 0xe9eef2),
+        flash: Color(hex: 0x07111f), contour: Color(hex: 0x597590), bootInner: Color(hex: 0x111b2a), bootOuter: Color(hex: 0x07111f), bootRim: Color(hex: 0x111b2a),
+        shadow: Color.black.opacity(0.25), switchOn: Color(hex: 0xd9ad7d))
+    static var activeDark: Palette { Experience.music ? .musicDark : .dark }
+
 }
 
 private struct PaletteKey: EnvironmentKey {

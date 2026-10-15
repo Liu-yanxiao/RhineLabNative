@@ -74,7 +74,7 @@ enum ShotMode {
     }
 
     /// Renders `frame` twice: the first pass requests any printed label still being built.
-    private static func capture(_ renderer: MetalRenderer, _ frame: RenderFrame, width w: Int, height h: Int) -> CGImage? {
+    static func capture(_ renderer: MetalRenderer, _ frame: RenderFrame, width w: Int, height h: Int) -> CGImage? {
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
         desc.usage = [.renderTarget, .shaderRead]
         desc.storageMode = .shared
@@ -95,7 +95,7 @@ enum ShotMode {
         return ctx.makeImage()
     }
 
-    private static func write(_ image: CGImage, to path: String) {
+    static func write(_ image: CGImage, to path: String) {
         let url = URL(fileURLWithPath: path)
         if let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) {
             CGImageDestinationAddImage(dest, image, nil)
@@ -108,7 +108,7 @@ enum ShotMode {
     @MainActor
     private static func shotWithInterface(path: String, mode: String, index: Int, dark: Bool, width w: Int, height h: Int, bootTime: Double) {
         AppModel.headless = true
-        let model = AppModel()
+        let model = AppModel(bootPreview: mode == "boot")
         model.dark = dark
         model.engine.idleDrift = false
         var t = CACurrentMediaTime()
@@ -146,7 +146,7 @@ enum ShotMode {
         if mode == "boot" { model.setBootTime(bootTime) }
         let stage = Stage()
             .environmentObject(model)
-            .environment(\.palette, dark ? .dark : .light)
+            .environment(\.palette, dark ? .activeDark : .light)
             .frame(width: 1920, height: 1080)
         let renderer = ImageRenderer(content: stage)
         renderer.scale = CGFloat(w) / 1920
@@ -169,11 +169,13 @@ enum ShotMode {
         let (w, h) = (dims.first ?? 2880, dims.count > 1 ? dims[1] : 1620)
         Theme.registerFonts()
         guard let renderer = MetalRenderer(compositeFormat: .bgra8Unorm) else { return }
+        if Experience.music { renderer.renderQuality = .musicBalanced }
         renderer.statsEnabled = true
         renderer.passTimingEnabled = true
         let engine = ArchiveEngine()
         engine.idleDrift = false
         engine.targetReveal = 1
+        engine.setTheme(dark: args.contains("--dark"), time: 0, immediate: true)
         engine.select(0, time: 0)
         var t = 0.0
         func advance(_ seconds: Double) { for _ in 0..<Int(seconds * 60) { t += 1.0 / 60; engine.tick(time: t, dt: 1.0 / 60) } }

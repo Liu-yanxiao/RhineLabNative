@@ -6,10 +6,11 @@ import SwiftUI
 struct BootView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.palette) private var pal
+    @Environment(\.accessibilityReduceMotion) private var systemReduced
 
     var body: some View {
         TimelineView(.animation) { context in
-            let s = BootMotion.state(appTime: model.bootTime(at: context.date))
+            let s = state(at: context.date)
             ZStack(alignment: .topLeading) {
                 BootBackdrop(t: s.t).opacity(s.backgroundOpacity)
 
@@ -47,11 +48,25 @@ struct BootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
+
+    private func state(at date: Date) -> BootState {
+        var state = BootMotion.state(appTime: model.bootTime(at: date))
+        if model.reduced || systemReduced {
+            state.logo = BootLogoTrack()
+            state.scan = BootMotion.state(appTime: 16).scan
+            state.scanOrbit = BootMotion.state(appTime: 16).scanOrbit
+            state.ringScale = 1; state.ringBlur = 0
+            state.welcomePanel = 0; state.welcomeInk = 1; state.exitBlur = 0
+            state.companyMask = false
+        }
+        return state
+    }
 }
 
 /// Warm grey field with the faint white contour lines, drifting slowly as the opening plays.
 private struct BootBackdrop: View {
     @Environment(\.palette) private var pal
+    @EnvironmentObject private var model: AppModel
     var t: Double = 6
 
     var body: some View {
@@ -84,7 +99,7 @@ private struct BootBackdrop: View {
                                    with: .color(pal.contour), lineWidth: 3)
                 }
             }
-            .opacity(0.15).blur(radius: 2)
+            .opacity(model.dark ? 0.13 : 0.15).blur(radius: 2)
             .scaleEffect(1.08)
             .offset(x: sin(t * 0.16) * 18, y: -(t - 6) * 5)
         }

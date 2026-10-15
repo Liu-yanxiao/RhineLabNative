@@ -14,7 +14,7 @@ struct ArchiveRecord: Codable, Identifiable, Hashable {
     let source: String
 }
 
-private struct ArchiveContent: Codable {
+struct ArchiveContent: Codable {
     let categories: [String]
     let columns: [String]
     let records: [ArchiveRecord]
@@ -28,28 +28,33 @@ struct Cell: Hashable {
 
 /// Static archive data plus the lane / row mapping used by the array.
 enum Archive {
-    private static let content: ArchiveContent = {
+    private static let originalContent: ArchiveContent = {
         guard let url = Bundle.main.url(forResource: "archives", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode(ArchiveContent.self, from: data)
         else { fatalError("archives.json missing from bundle") }
         return decoded
     }()
+    private static var content: ArchiveContent { Experience.music ? MusicCatalog.archiveContent : originalContent }
 
     static var records: [ArchiveRecord] { content.records }
     static var categories: [String] { ["全部档案"] + content.categories }
     static var columns: [String] { content.columns }
 
     static func columnFiles(_ lane: Int) -> [Int] {
-        records.enumerated()
-            .filter { $0.element.category == columns[lane] }
+        let snapshot = content
+        return snapshot.records.enumerated()
+            .filter { $0.element.category == snapshot.columns[wrap(lane, snapshot.columns.count)] }
             .map(\.offset)
     }
 
     /// Canonical lane and row; real files occupy rows 12...19 of each lane.
     static func location(of index: Int) -> (lane: Int, row: Int) {
-        let lane = columns.firstIndex(of: records[index].category) ?? 0
-        let row = 12 + (columnFiles(lane).firstIndex(of: index) ?? 0)
+        let snapshot = content
+        let index = wrap(index, snapshot.records.count)
+        let lane = snapshot.columns.firstIndex(of: snapshot.records[index].category) ?? 0
+        let files = snapshot.records.enumerated().filter { $0.element.category == snapshot.columns[lane] }.map(\.offset)
+        let row = 12 + (files.firstIndex(of: index) ?? 0)
         return (lane, row)
     }
 
@@ -58,7 +63,9 @@ enum Archive {
     }
 
     static func file(at cell: Cell) -> Int {
-        let files = columnFiles(wrap(cell.lane, columns.count))
+        let snapshot = content
+        let lane = wrap(cell.lane, snapshot.columns.count)
+        let files = snapshot.records.enumerated().filter { $0.element.category == snapshot.columns[lane] }.map(\.offset)
         return files[wrap(cell.row - 12, files.count)]
     }
 }

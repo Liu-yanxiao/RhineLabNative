@@ -24,6 +24,12 @@ struct FrameUniforms {
     var ao = SIMD4<Float>(0.5, 1.2, 0.05, 0)     // radius, strength, bias
     var keyA = SIMD4<Float>(0, 0, 0, 0)         // strip light endpoints (w = 1: strip, 0: directional)
     var keyB = SIMD4<Float>(0, 0, 0, 0)
+    var musicSelection = SIMD4<Float>(0, 0, 0, 0)
+    var musicLight = SIMD4<Float>(0, 0, 0, 0)
+    var musicAim = SIMD4<Float>(0, 0, 0, 0)
+    var musicScatter = SIMD4<Float>(0, 0, 0, 0)
+    var musicMark = SIMD4<Float>(repeating: 0)
+    var musicMarkColor = SIMD4<Float>(repeating: 0)
 }
 
 struct InstanceData {
@@ -53,6 +59,7 @@ final class MetalRenderer {
     private var library: MTLLibrary!
     private var envSpec: MTLTexture!
     private var envIrr: MTLTexture!
+    private var watermarkTexture: MTLTexture!
     private var depthWrite: MTLDepthStencilState!
     private var depthNoWrite: MTLDepthStencilState!
     private var compositeFormat: MTLPixelFormat
@@ -189,15 +196,29 @@ final class MetalRenderer {
             try buildPipelines()
             try loadGeometry()
             try buildEnvironment()
+            buildWatermark()
         } catch {
             FileHandle.standardError.write(Data("Renderer setup failed: \(error)\n".utf8))
             return nil
         }
-        preloadLabels(count: Archive.records.count)
+        if !Experience.music { preloadLabels(count: Archive.records.count) }
         arrayBuffers = (0..<3).map { _ in device.makeBuffer(length: 512 * MemoryLayout<InstanceData>.stride, options: .storageModeShared)! }
     }
 
     // MARK: Setup
+
+    private func buildWatermark() {
+        let width = 1024, height = 480
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let ctx = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 1, y: -1)
+        Logo.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: width, height: height), color: CGColor(gray: 1, alpha: 1))
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
+        descriptor.usage = .shaderRead
+        watermarkTexture = device.makeTexture(descriptor: descriptor)!
+        watermarkTexture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: pixels, bytesPerRow: width * 4)
+    }
 
     private func buildPipelines() throws {
         library = try device.makeLibrary(source: shaderSource, options: nil)
@@ -226,7 +247,7 @@ final class MetalRenderer {
         for count in [1, 4] {
             pipeOpaqueBy[count] = try scene("vs_main", "fs_surface", samples: count)
             pipeTransBy[count] = try scene("vs_main", "fs_trans", samples: count)
-            pipeLabelBy[count] = try scene("vs_main", "fs_label", blend: true, samples: count)
+            pipeLabelBy[count] = try scene("vs_main", Experience.music ? "fs_music_print" : "fs_label", blend: true, samples: count)
         }
         labelSampler = makeLabelSampler(anisotropy: quality.anisotropy)
 
@@ -330,13 +351,19 @@ final class MetalRenderer {
     }
 
     private func loadGeometry() throws {
-        let meshes = try GLB.load(resource: "archive-cassette")
+        let meshes = try GLB.load(resource: Experience.music ? "music-cd" : "archive-cassette").map { mesh -> GLBMesh in
+            guard Experience.music else { return mesh }
+            return MusicGeometry.fitted(mesh)
+        }
         arrayMeshes = meshes.filter { Surfaces.arraySurfaces.contains($0.materialName) }.map { GPUMesh(device: device, glb: $0) }
-        cardMeshes = meshes.filter { !Surfaces.hidden.contains($0.materialName) }.map { GPUMesh(device: device, glb: $0) }
+        cardMeshes = meshes.filter { Experience.music ? Surfaces.arraySurfaces.contains($0.materialName) : !Surfaces.hidden.contains($0.materialName) }.map { GPUMesh(device: device, glb: $0) }
         // The same card split into assembly parts for the 360° viewer.
-        assemblyMeshes = try GLB.load(resource: "archive-assembly")
-            .filter { !Surfaces.hidden.contains($0.materialName) }
-            .map { ($0.part ?? "cover", GPUMesh(device: device, glb: $0)) }
+        if Experience.music { assemblyMeshes = cardMeshes.map { ("cover", $0) } }
+        else {
+            assemblyMeshes = try GLB.load(resource: "archive-assembly")
+                .filter { !Surfaces.hidden.contains($0.materialName) }
+                .map { ($0.part ?? "cover", GPUMesh(device: device, glb: $0)) }
+        }
 
         let half: Float = 100, y: Float = -4.63
         floorMesh = GPUMesh(device: device,
@@ -345,9 +372,11 @@ final class MetalRenderer {
             indices: [0, 2, 1, 0, 3, 2], material: Surfaces.floor, kind: .floor, name: "Floor")
 
         // Printed label plane (0.99 × 0.46) in front of the cover.
-        let (cx, cy, cz): (Float, Float, Float) = (-1.36, 3.04, 0.255)
+        let (cx, cy, cz): (Float, Float, Float) = Experience.music ? (0.14, 1.85, 0.15) : (-1.36, 3.04, 0.255)
+        let hw: Float = Experience.music ? 1.49 : 0.495
+        let hh: Float = Experience.music ? 1.49 : 0.23
         labelMesh = GPUMesh(device: device,
-            positions: [[cx - 0.495, cy - 0.23, cz], [cx + 0.495, cy - 0.23, cz], [cx + 0.495, cy + 0.23, cz], [cx - 0.495, cy + 0.23, cz]],
+            positions: [[cx - hw, cy - hh, cz], [cx + hw, cy - hh, cz], [cx + hw, cy + hh, cz], [cx - hw, cy + hh, cz]],
             normals: Array(repeating: [0, 0, 1], count: 4), uvs: [[0, 1], [1, 1], [1, 0], [0, 0]],
             indices: [0, 1, 2, 0, 2, 3], material: SurfaceMat(), kind: .opaque, name: "Label")
     }
@@ -355,13 +384,38 @@ final class MetalRenderer {
     /// Label textures are built off the render thread; a label that is not ready yet is skipped.
     private let labelLock = NSLock()
     private var labelsBuilding: Set<Int> = []
+    private var labelRevision = 0
+    private var labelOrder: [Int] = []
+    private var visibleLabels: Set<Int> = []
+    private var labelVersions: [Int: Int] = [:]
+    var readyLabelIndices: Set<Int> { labelLock.lock(); defer { labelLock.unlock() }; return Set(labelTextures.keys) }
+    func invalidateLabel(_ index: Int) {
+        labelLock.lock(); defer { labelLock.unlock() }
+        labelVersions[index, default: 0] += 1; labelTextures[index] = nil; labelsBuilding.remove(index)
+        labelOrder.removeAll { $0 == index }
+        LabelImage.invalidate(index)
+    }
+
+    func clearLabels() {
+        labelLock.lock(); labelRevision += 1; labelTextures.removeAll(); labelsBuilding.removeAll(); labelOrder.removeAll(); labelVersions.removeAll(); visibleLabels.removeAll(); labelLock.unlock()
+        LabelImage.clear()
+    }
+
+    // Call with labelLock held. Current-frame textures must never evict each other.
+    private func trimLabels() {
+        guard Experience.music else { return }
+        while labelOrder.count > 24, let position = labelOrder.firstIndex(where: { !visibleLabels.contains($0) }) {
+            labelTextures.removeValue(forKey: labelOrder.remove(at: position))
+        }
+    }
 
     private func labelTexture(_ index: Int) -> MTLTexture? {
         labelLock.lock(); defer { labelLock.unlock() }
         if let t = labelTextures[index] { return t }
         if !labelsBuilding.contains(index) {
             labelsBuilding.insert(index)
-            DispatchQueue.global(qos: .userInitiated).async { [self] in buildLabel(index) }
+            let revision = labelRevision, version = labelVersions[index, default: 0]
+            DispatchQueue.global(qos: .userInitiated).async { [self] in buildLabel(index, revision: revision, version: version) }
         }
         return nil
     }
@@ -378,7 +432,7 @@ final class MetalRenderer {
         }
     }
 
-    private func buildLabel(_ index: Int) {
+    private func buildLabel(_ index: Int, revision: Int? = nil, version: Int = 0) {
         let image = LabelImage.image(for: index)
         let w = image.width, h = image.height
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
@@ -392,7 +446,13 @@ final class MetalRenderer {
         if let cb = queue.makeCommandBuffer(), let blit = cb.makeBlitCommandEncoder() {
             blit.generateMipmaps(for: t); blit.endEncoding()
             cb.addCompletedHandler { [self] _ in
-                labelLock.lock(); labelTextures[index] = t; labelLock.unlock()
+                labelLock.lock()
+                if (revision == nil || revision == labelRevision) && version == labelVersions[index, default: 0] {
+                    labelTextures[index] = t; labelsBuilding.remove(index)
+                    labelOrder.removeAll { $0 == index }; labelOrder.append(index)
+                    trimLabels()
+                }
+                labelLock.unlock()
             }
             cb.commit()
         }
@@ -405,6 +465,7 @@ final class MetalRenderer {
         var resolved: MTLTexture, depthResolved: MTLTexture, ao: MTLTexture
     }
     private var targetCache: [Int: Targets] = [:]
+    private var targetOrder: [Int] = []
 
     /// Render targets are cached per size, so switching between a motion and a still resolution is free.
     private func resize(_ w: Int, _ h: Int) {
@@ -412,9 +473,11 @@ final class MetalRenderer {
         size = (w, h)
         let key = w << 16 | h
         if targetCache[key] == nil {
-            if targetCache.count >= 3 { targetCache.removeAll() }
             targetCache[key] = makeTargets(w, h)
         }
+        targetOrder.removeAll { $0 == key }; targetOrder.append(key)
+        let limit = Experience.music ? 2 : 3
+        while targetOrder.count > limit { targetCache.removeValue(forKey: targetOrder.removeFirst()) }
         let t = targetCache[key]!
         captureColor = t.captureColor; captureMSAA = t.captureMSAA; captureDepth = t.captureDepth
         captureOpaque = t.captureOpaque; captureBackDepth = t.captureBackDepth
@@ -476,19 +539,40 @@ final class MetalRenderer {
         u.keyA = SIMD4(stripA, strip ? 1 : 0)
         u.keyB = SIMD4(stripB, strip ? 1 : 0)
         u.camPos = SIMD4(frame.cameraPosition, 1)
-        // Dark theme (web `themeEnvironment`): exposure 1.0 → 0.98, environment 0.52 → 0.32, lights × 0.65.
         let th = max(0, min(1, frame.themeAmount))
-        let exposure = Self.exposure * (1 - 0.02 * th)
+        u.musicMark = frame.watermark
+        let markInk = simd_mix(SIMD3<Float>(8, 10, 8) / 255, SIMD3<Float>(233, 238, 242) / 255, SIMD3(repeating: th))
+        u.musicMarkColor = SIMD4(markInk, frame.watermarkBehindScene ? 1 : 0)
+        // Music's night scene uses a low ambient field and a bright, moving side key.
+        // The original archive keeps its existing global theme lighting.
+        let music = Experience.music
+        let exposure = music ? Self.exposure + (1.08 - Self.exposure) * th : Self.exposure * (1 - 0.02 * th)
         let lights = 1 - 0.35 * th
-        u.params = SIMD4(exposure, frame.fogNear, frame.fogFar, Self.envScale * (1 - 0.385 * th))
+        let environment = music ? Self.envScale + (0.16 - Self.envScale) * th : Self.envScale * (1 - 0.385 * th)
+        u.params = SIMD4(exposure, frame.fogNear, frame.fogFar, environment)
         u.screen = SIMD4(Float(width), Float(height), quality.shadows > 0 ? 1 : 0, frame.time)
         u.fogColor = SIMD4(linearBackground(frame.fogColor ?? frame.background, exposure: exposure), 1)
         u.keyDir = SIMD4(simd_normalize(lightEye), 0)
-        u.keyColor = SIMD4(srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0)) * Self.keyScale * lights, Look.number("RL_LEAK", 2.5))
+        let key = srgbLinear(Look.hex("RL_KEY_COLOR", 0xffe3c0))
+        let sky = srgbLinear(Look.hex("RL_HEMI_SKY", 0xfff4e6))
+        let ground = srgbLinear(Look.hex("RL_HEMI_GROUND", 0x9c7d5c))
+        let blend = SIMD3<Float>(repeating: music ? th : 0)
+        u.keyColor = SIMD4(simd_mix(key, srgbLinear(0xe5f0ff), blend) * Self.keyScale * (music ? 1 - 0.8125 * th : lights), Look.number("RL_LEAK", 2.5))
         u.fillDir = SIMD4(simd_normalize(SIMD3<Float>(7, 8, -10)), 0)
-        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * lights, Look.number("RL_TOP_PATH", 0.28))
-        u.hemiSky = SIMD4(srgbLinear(Look.hex("RL_HEMI_SKY", 0xfff4e6)) * Self.hemiScale * lights, 1)
-        u.hemiGround = SIMD4(srgbLinear(Look.hex("RL_HEMI_GROUND", 0x9c7d5c)) * Self.hemiScale * lights, 1)
+        u.fillColor = SIMD4(SIMD3<Float>(repeating: 1) * Self.fillScale * (music ? 1 - 0.85 * th : lights), Look.number("RL_TOP_PATH", 0.28))
+        let hemi = Self.hemiScale * (music ? 1 - (1 - 0.21 / 0.55) * th : lights)
+        u.hemiSky = SIMD4(simd_mix(sky, srgbLinear(0xe2eeff), blend) * hemi, 1)
+        u.hemiGround = SIMD4(simd_mix(ground, srgbLinear(0x56708c), blend) * hemi, 1)
+        if music, let selected = frame.cards.first {
+            let aim = selected.position + Matrix.rotationXY(tilt: selected.tilt, yaw: selected.yaw) * SIMD3<Float>(-2.085, 2.252, 0)
+            let right = SIMD3<Float>(frame.view[0].x, frame.view[1].x, frame.view[2].x)
+            let up = SIMD3<Float>(frame.view[0].y, frame.view[1].y, frame.view[2].y)
+            let back = SIMD3<Float>(frame.view[0].z, frame.view[1].z, frame.view[2].z)
+            u.musicSelection = SIMD4(selected.position, th)
+            u.musicAim = SIMD4(aim, 0)
+            u.musicLight = SIMD4(aim - right * 48 - up * 17.6 + back * 36, 130 * 64 * th)
+            u.musicScatter = SIMD4(srgbLinear(0xcee5ff), 0.72 * th)
+        }
         let dof = frame.depthOfField * Float(quality.depthOfField) / 100
         var effectsOff = frame.effectsOff
         if quality.aoSamples == 0 { effectsOff |= 2 }
@@ -502,6 +586,12 @@ final class MetalRenderer {
     /// Draws one frame into `target` (a drawable texture or an offscreen texture).
     func render(_ frame: RenderFrame, to target: MTLTexture, present drawable: MTLDrawable? = nil,
                 completion: (() -> Void)? = nil) {
+        labelLock.lock()
+        visibleLabels = Set(frame.arrayPrints.map(\.labelIndex))
+        if let assembly = frame.assembly { visibleLabels.insert(assembly.labelIndex) }
+        else { visibleLabels.formUnion(frame.cards.filter { $0.quality > 0.001 }.map(\.labelIndex)) }
+        trimLabels()
+        labelLock.unlock()
         adoptQuality()
         resize(target.width, target.height)
         inFlight.wait()
@@ -573,7 +663,10 @@ final class MetalRenderer {
             e.setFragmentTexture(envIrr, index: 5)
         }
         func drawOpaque(_ e: MTLRenderCommandEncoder, capture: Bool = false) {
-            if let a = frame.assembly { drawAssembly(e, a, transmissive: false, capture: capture); return }
+            if let a = frame.assembly {
+                drawAssembly(e, a, transmissive: false, capture: capture)
+                if frame.arrayCards.isEmpty { return }
+            }
             var identity = InstanceData(posTilt: .zero, yawQR: SIMD4(0, 0, 0, frame.themeAmount))
             e.setVertexBytes(&identity, length: MemoryLayout<InstanceData>.stride, index: 2)
             draw(floorMesh, on: e)
@@ -588,7 +681,7 @@ final class MetalRenderer {
         }
         let background = linearBackground(frame.background, exposure: u.params.x)
         let clear = MTLClearColor(red: Double(background.x), green: Double(background.y),
-                                  blue: Double(background.z), alpha: 1)
+                                  blue: Double(background.z), alpha: Experience.music ? 0 : 1)
 
         // 2. Opaque capture (MSAA, resolved into a mip chain): the glass blurs and refracts this.
         let cp0 = MTLRenderPassDescriptor()
@@ -612,7 +705,10 @@ final class MetalRenderer {
             e.endEncoding()
         }
         func drawTransmissive(_ e: MTLRenderCommandEncoder) {
-            if let a = frame.assembly { drawAssembly(e, a, transmissive: true); return }
+            if let a = frame.assembly {
+                drawAssembly(e, a, transmissive: true)
+                if frame.arrayCards.isEmpty { return }
+            }
             for m in arrayMeshes where m.kind == .frost || m.kind == .ivory {
                 e.setVertexBuffer(arrayBuffer, offset: 0, index: 2)
                 draw(m, on: e, instances: count)
@@ -675,12 +771,21 @@ final class MetalRenderer {
             drawOpaque(e)
 
             e.setRenderPipelineState(pipeTrans)
+            // Back faces already have their own transmission capture pass.
+            if Experience.music { e.setCullMode(.back) }
             e.setFragmentTexture(captureColor, index: 0)
             drawTransmissive(e)
+            e.setCullMode(.none)
             // Printed labels
             e.setRenderPipelineState(pipeLabel)
             e.setDepthStencilState(depthNoWrite)
             e.setFragmentSamplerState(labelSampler, index: 0)
+            for card in frame.arrayPrints {
+                guard let label = labelTexture(card.labelIndex) else { continue }
+                var inst = InstanceData(posTilt: SIMD4(card.position, card.tilt), yawQR: SIMD4(card.yaw, card.quality, card.reveal, card.theme))
+                e.setVertexBytes(&inst, length: MemoryLayout<InstanceData>.stride, index: 2)
+                e.setFragmentTexture(label, index: 2); draw(labelMesh, on: e, material: false)
+            }
             if let a = frame.assembly {
                 if let label = labelTexture(a.labelIndex) {
                     var inst = assemblyInstance("cover", a)
@@ -724,6 +829,7 @@ final class MetalRenderer {
             e.setFragmentTexture(resolved, index: 0)
             e.setFragmentTexture(depthResolved, index: 1)
             e.setFragmentTexture(aoTexture, index: 2)
+            e.setFragmentTexture(watermarkTexture, index: 6)
             e.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
             e.endEncoding()
         }
@@ -748,7 +854,7 @@ final class MetalRenderer {
 
     /// One assembly part, centred on the origin and spread along the card's thickness axis.
     private func assemblyInstance(_ part: String, _ a: AssemblyDraw) -> InstanceData {
-        let offset = ViewerEngine.modelOffset + SIMD3<Float>(0, 0, ViewerEngine.depth(of: part) * a.spread)
+        let offset = ViewerEngine.modelOffset + a.offset + SIMD3<Float>(0, 0, ViewerEngine.depth(of: part) * a.spread)
         return InstanceData(posTilt: SIMD4(offset, 0), yawQR: SIMD4(0, 1, a.clarity, a.theme))
     }
 

@@ -9,6 +9,7 @@ let package = Package(
             name: "RhineLab",
             path: "Sources/RhineLab",
             swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+        ),
+        .testTarget(name: "RhineLabTests", dependencies: ["RhineLab"], path: "Tests")
     ]
 )

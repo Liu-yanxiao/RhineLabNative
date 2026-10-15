@@ -23,6 +23,7 @@ struct ModalHost: View {
                     case .search: DirectoryPanel(savedOnly: false)
                     case .saved: DirectoryPanel(savedOnly: true)
                     case .settings: SettingsPanel()
+                    case .library: DirectoryPanel(savedOnly: false)
                     }
                 }
                 .transition(.asymmetric(insertion: Self.panelIn, removal: Self.panelOut))
@@ -34,7 +35,7 @@ struct ModalHost: View {
 // MARK: Frame
 
 /// The dialog sheet: top bar with the close button, then the panel's own content.
-private struct ModalFrame<Content: View>: View {
+struct ModalFrame<Content: View>: View {
     @Environment(\.palette) private var pal
     @EnvironmentObject var model: AppModel
     let label: String
@@ -66,7 +67,7 @@ private struct ModalFrame<Content: View>: View {
     }
 }
 
-private struct ModalTitle: View {
+struct ModalTitle: View {
 
     @Environment(\.palette) private var pal
     let title: String

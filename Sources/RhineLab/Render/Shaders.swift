@@ -22,6 +22,12 @@ struct Frame {
     float4 ao;          // radius, strength, bias, tap count
     float4 keyA;        // strip light endpoints in world space (w = 1 when the key is a strip)
     float4 keyB;
+    float4 musicSelection; // xyz selected shell origin, w night-light blend
+    float4 musicLight;     // xyz distant camera-local side key, w intensity
+    float4 musicAim;
+    float4 musicScatter;   // rgb cool scattering tint, w strength
+    float4 musicMark;
+    float4 musicMarkColor; // rgb screen-space ink, w mask the mark behind scene geometry
 };
 
 struct Inst { float4 posTilt; float4 yawQR; };   // pos+tilt, yaw/quality/reveal
@@ -47,6 +53,8 @@ struct VOut {
     float4 position [[position]];
     float3 wpos;
     float3 wn;
+    float3 local;
+    float3 origin [[flat]];
     float2 uv;
     float h;
     float q [[flat]];
@@ -71,6 +79,8 @@ vertex VOut vs_main(VIn v [[stage_in]], uint iid [[instance_id]],
     o.position = f.viewProj * float4(world, 1);
     o.wpos = world;
     o.wn = R * v.nrm;
+    o.local = v.pos;
+    o.origin = inst.posTilt.xyz;
     o.uv = v.uv;
     o.h = v.pos.y / 3.7;
     o.q = inst.yawQR.y;
@@ -132,10 +142,19 @@ Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, flo
     float a = max(rough * rough, 0.002);
     float NoV = saturate(dot(N, V)) + 1e-4;
     Lit L; L.diffuse = float3(0); L.spec = float3(0);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < (f.musicLight.w > 0.0 ? 3 : 2); i++) {
         float3 Ld = i == 0 ? f.keyDir.xyz : f.fillDir.xyz;
         float3 Ls = Ld;              // direction used for the specular lobe
         float energy = 1.0;          // GGX normalisation for an extended light
+        float3 col = (i == 0 ? f.keyColor.rgb : f.fillColor.rgb) * (i == 0 ? shadow : 1.0);
+        if (i == 2) {
+            float3 toLight = f.musicLight.xyz - wpos;
+            float distance2 = max(dot(toLight, toLight), 1.0);
+            Ld = normalize(toLight); Ls = Ld;
+            float cone = dot(-Ld, normalize(f.musicAim.xyz - f.musicLight.xyz));
+            float spot = smoothstep(cos(0.32), cos(0.016), cone);
+            col = f.musicScatter.rgb * f.musicLight.w / distance2 * spot;
+        }
         if (i == 0 && f.keyA.w > 0.5) {
             // Strip light (Karis 2013 representative point): the nearest point of the strip to the
             // reflection ray feeds the specular lobe, the nearest point to the surface feeds diffuse.
@@ -152,7 +171,6 @@ Lit lightSurface(constant Frame &f, float3 albedo, float metal, float rough, flo
             float ap = saturate(a + sqrt(LoL) / (2.0 * dist));
             energy = (a / ap) * (a / ap);
         }
-        float3 col = (i == 0 ? f.keyColor.rgb : f.fillColor.rgb) * (i == 0 ? shadow : 1.0);
         float NoL = saturate(dot(N, Ld));
         if (NoL <= 0) continue;
         float3 H = normalize(Ls + V);
@@ -219,7 +237,8 @@ fragment float4 fs_surface(VOut in [[stage_in]], bool front [[front_facing]],
     float shadow = shadowFactor(f, shadowMap, in.wpos, N, in.position.xy);
     Lit L = lightSurface(f, albedo, metal, rough, N, V, shadow, envSpec, envIrr, 0.0, 0.25, in.wpos);
     float3 color = applyFog(f, L.diffuse + L.spec, in.wpos);
-    return float4(color, 1);
+    // Alpha is a background-coverage mask in the resolved scene, not window transparency.
+    return float4(color, (kind > 2.5 && kind < 3.5 && f.musicMark.w > 0.0) ? 0.0 : 1.0);
 }
 
 // ---- Transmissive surfaces (frosted cover, extracted ivory edge) -----------
@@ -241,7 +260,7 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float3 albedo = mix(m.colorLow.rgb, m.colorHigh.rgb, q);
     float tintAmount = body ? 1.0 - q : 0.0;
     float g = smoothstep(0.1, 1.0, clamp(in.h, 0.0, 1.0));
-    float3 gradient = mix(float3(0.40, 0.30, 0.20), float3(1.0, 0.98, 0.94), g);
+    float3 gradient = mix(float3(0.68, 0.59, 0.48), float3(1.0, 0.99, 0.97), g);
     // The far side is seen again through the front, so the body tint is split between the two.
     if (!front) gradient = sqrt(gradient);
     albedo *= mix(float3(1.0), gradient, tintAmount);
@@ -253,7 +272,13 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
     float transmission = mix(m.p0.z, m.p0.w, q);
     float thickness = m.p1.x;
     float attDist = m.p1.y;
-    if (frost) {
+    if (frost && m.dark.w > 0.0) {
+        // Music keeps a matte substrate in inspection; the surface print is independent.
+        rough = mix(mix(m.colorLow.a, m.colorHigh.a, q), mix(m.dark.w, 0.44, q), in.theme);
+        transmission = mix(0.88, 0.90, in.theme);
+        thickness = mix(0.10, 0.055, in.theme);
+        attDist = mix(1.2, 4.5, in.theme);
+    } else if (frost) {
         rough = mix(mix(0.28, 0.42, q), 0.025, clearing);
         transmission = mix(transmission, 0.985, clearing);
         thickness = mix(thickness, 0.018, clearing);
@@ -320,6 +345,32 @@ fragment float4 fs_trans(VOut in [[stage_in]], bool front [[front_facing]],
                     * (1.0 - saturate(N.y)) * f.post.w * (1.0 - clearing);
         color += glow;
     }
+    if (body && f.musicSelection.w > 0.0) {
+        // Bounded transport from the lit spine, shared by the array and extracted shell.
+        // World origins follow the existing selection spring, including infinite-row rebasing.
+        float lane = abs(in.origin.x - f.musicSelection.x);
+        float core = exp(-pow(lane / 3.2, 4.0));
+        float spill = exp(-pow(lane / 7.2, 4.0));
+        float row = in.origin.z - f.musicSelection.z;
+        float rowLight = exp(-pow(row / 5.5, 2.0));
+        float neighbor = exp(-pow(row / 2.4, 2.0));
+        float hot = exp(-pow(row / 1.1, 2.0));
+        float guided = 0.58 * core * mix(0.12, 1.0, rowLight) + 0.42 * spill * neighbor;
+        float laneLight = 0.58 * core + 0.42 * spill;
+        float edge = exp(-max(0.0, in.local.x + 2.225) * 1.7);
+        float height = saturate((in.local.y - 0.175) / 3.35);
+        float rim = exp(-max(0.0, 3.525 - in.local.y) * 24.0);
+        float grazing = 1.0 - saturate(abs(dot(N, V)));
+        float edgeScatter = (frost ? 0.14 : 0.30) * edge + (frost ? 0.003 : 0.016);
+        float ribbon = rim * (0.22 + 0.78 * edge) + (frost ? 0.035 : 0.18) * edge * grazing;
+        color += f.musicScatter.rgb * f.musicScatter.w *
+                 (guided * edgeScatter * mix(1.0, 0.62, height) + laneLight * hot * ribbon * 0.8);
+        // Static object-space micrograin; fade below the pixel footprint to avoid sparkling.
+        float2 grainCell = floor(in.local.xy * 180.0);
+        float grain = fract(sin(dot(grainCell, float2(12.9898, 78.233))) * 43758.5453);
+        float footprint = max(fwidth(in.local.x), fwidth(in.local.y)) * 180.0;
+        color *= 1.0 + (grain - 0.5) * 0.05 * (1.0 - smoothstep(0.4, 1.2, footprint)) * in.theme;
+    }
     color = applyFog(f, color, in.wpos);
     return float4(color, 1);
 }
@@ -333,6 +384,14 @@ fragment float4 fs_label(VOut in [[stage_in]], constant Frame &f [[buffer(1)]], 
     float lum = dot(c.rgb, float3(0.2126, 0.7152, 0.0722));
     float3 inverted = mix(float3(0.023, 0.032, 0.037), float3(0.78, 0.78, 0.71), 1.0 - smoothstep(0.12, 0.65, lum));
     c.rgb = mix(c.rgb, inverted, in.theme);
+    return float4(c.rgb, c.a * in.q);
+}
+
+fragment float4 fs_music_print(VOut in [[stage_in]], constant Frame &f [[buffer(1)]], texture2d<float> tex [[texture(2)]],
+                             sampler s [[sampler(0)]]) {
+    float4 c = tex.sample(s, in.uv);
+    c.rgb *= mix(1.0, 0.72, in.theme);
+    c.rgb = applyFog(f, c.rgb, in.wpos);
     return float4(c.rgb, c.a * in.q);
 }
 
@@ -418,14 +477,15 @@ float cocRadius(constant Frame &f, float dist, float width) {
 
 fragment float4 fs_composite(FSOut in [[stage_in]], constant Frame &f [[buffer(1)]],
                              texture2d<float> color [[texture(0)]], depth2d<float> depthTex [[texture(1)]],
-                             texture2d<float> aoTex [[texture(2)]]) {
+                             texture2d<float> aoTex [[texture(2)]], texture2d<float> watermark [[texture(6)]]) {
     constexpr sampler s(coord::normalized, filter::linear, address::clamp_to_edge);
     constexpr sampler nearest(coord::normalized, filter::nearest, address::clamp_to_edge);
     float width = float(color.get_width());
     float2 texel = 1.0 / float2(color.get_width(), color.get_height());
     float centerDepth = depthTex.sample(nearest, in.uv);
     float R = cocRadius(f, viewDistance(f, centerDepth), width);
-    float3 c = color.sample(s, in.uv).rgb;
+    float4 scene = color.sample(s, in.uv);
+    float3 c = scene.rgb;
     if (R > 0.6 && f.post.y > 0.0 && !(int(f.post.z) & 4)) {
         float3 sum = c; float wsum = 1.0;
         const int taps = 16;
@@ -455,6 +515,19 @@ fragment float4 fs_composite(FSOut in [[stage_in]], constant Frame &f [[buffer(1
     }
     c = acesFilmic(c, f.params.x);
     c = srgbEncode(c);
+    if (f.musicMark.w > 0.0) {
+        float2 span = float2(f.musicMark.z, f.musicMark.z * (f.screen.x / f.screen.y) * (145.0 / 310.0));
+        float2 uv = (in.uv - f.musicMark.xy) / span + 0.5;
+        if (all(uv >= 0.0) && all(uv <= 1.0)) {
+            // Far geometry dissolves into the background; keep the mark behind its
+            // remaining coverage, while the selected foreground cover stays unmarked.
+            float haze = smoothstep(f.params.y, f.params.z, viewDistance(f, centerDepth));
+            float behind = 1.0 - saturate(scene.a) * (1.0 - haze);
+            float mask = mix(1.0, behind, f.musicMarkColor.w);
+            float ink = watermark.sample(s, uv).a * f.musicMark.w * mask;
+            c = mix(c, f.musicMarkColor.rgb, ink);
+        }
+    }
     // Hash dither hides banding in the soft gradients.
     float n = fract(sin(dot(in.position.xy, float2(12.9898, 78.233))) * 43758.5453);
     c += (n - 0.5) / 255.0;

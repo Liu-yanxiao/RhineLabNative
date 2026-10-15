@@ -83,7 +83,7 @@ struct NavButton<Label: View>: View {
     @State private var hovering = false
     var body: some View {
         Button(action: action) { label.frame(minHeight: 28) }
-            .buttonStyle(.plain)
+            .buttonStyle(RhineButtonStyle(active: Experience.music))
             .foregroundStyle(hovering ? pal.accent : pal.ink)
             .onHover { hovering = $0 }
     }
@@ -102,12 +102,14 @@ struct ArchiveHUD: View {
         ZStack(alignment: .topLeading) {
             // Selection callout, right of the extracted card.
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 16) {
-                    Text("INTERNAL DATABASE").tracking(1.3)
-                    Text("／").tracking(1.3)
-                    RollingText(text: r.category, animated: animate)
+                HStack {
+                    Rectangle().fill(pal.ink).frame(width: 7, height: 7)
+                    Spacer().frame(width: 353)
+                    Rectangle().fill(pal.ink).frame(width: 7, height: 7)
+                    Spacer()
+                    Rectangle().fill(pal.ink).frame(width: 7, height: 7)
                 }
-                .font(Theme.font(12)).foregroundStyle(pal.muted).padding(.bottom, 22)
+                .frame(width: 870).padding(.bottom, 27)
 
                 Button { model.open() } label: {
                     HStack(spacing: 10) {
@@ -119,31 +121,40 @@ struct ArchiveHUD: View {
                         Text("↗").font(Theme.font(25, .regular)).padding(.leading, 38)
                             .opacity(hoverTitle ? 1 : 0).offset(x: hoverTitle ? 3 : 0, y: hoverTitle ? -3 : 0)
                     }
-                    .font(Theme.font(28, .bold)).tracking(0.2)
+                    .font(Theme.font(26, .semibold)).tracking(0.2)
                 }
                 .buttonStyle(.plain).onHover { hoverTitle = $0 }
                 .animation(.easeOut(duration: 0.3), value: hoverTitle)
+                .padding(.leading, 58)
 
                 ZStack(alignment: .leading) {
-                    Rectangle().fill(pal.line).frame(height: 1)
-                    Rectangle().fill(pal.ink).frame(width: 6, height: 6).offset(x: -61)
-                }.padding(.leading, 57).padding(.top, 55)
+                    Rectangle().fill(pal.ink.opacity(0.7)).frame(height: 2)
+                    Rectangle().fill(pal.ink).frame(width: 7, height: 7).offset(x: -3, y: -26)
+                }.frame(width: 950, height: 2).padding(.top, 40)
+
+                HStack(spacing: 16) {
+                    Text("INTERNAL DATABASE").tracking(1.3)
+                    Text("／")
+                    RollingText(text: r.category, animated: animate)
+                }
+                .font(Theme.font(10)).foregroundStyle(pal.muted)
+                .padding(.leading, 58).padding(.top, 18)
 
                 HStack {
                     RollingText(text: r.title, animated: animate)
                     Spacer()
                     RollingText(text: r.clearance, animated: animate)
                 }
-                .font(Theme.font(16)).frame(width: 652).padding(.leading, 58).padding(.top, 22)
+                .font(Theme.font(16)).frame(width: 652).padding(.leading, 58).padding(.top, 14)
 
                 Button { model.open() } label: {
                     HStack(spacing: 70) { Text("ACCESS FILE").tracking(1); Text("→") }.font(Theme.font(14))
                 }
-                .buttonStyle(.plain).padding(.leading, 58).padding(.top, 58)
+                .buttonStyle(.plain).padding(.leading, 58).padding(.top, 36)
             }
             .foregroundStyle(pal.ink)
             .frame(width: 950, alignment: .leading)
-            .offset(x: 970, y: 471)
+            .offset(x: 947, y: 470)
 
             if let h = model.hover {
                 Text("X-\(Archive.records[h].id.dropFirst(2)) / \(Archive.records[h].title)")

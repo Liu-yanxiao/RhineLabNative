@@ -3,7 +3,7 @@ import AppKit
 import QuartzCore
 
 enum Mode { case boot, archive, detail }
-enum Modal { case search, saved, settings }
+enum Modal { case search, saved, settings, library }
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -11,13 +11,31 @@ final class AppModel: ObservableObject {
     let viewer: ViewerEngine
     let sceneView: ArchiveView
     let audio = TerminalAudio()
+    let musicService: MusicService
+    let musicLibrary: MusicLibrary
+    let musicPlayer: MusicPlayer
+    let musicPresentation: MusicPresentation
+    var musicItem: MusicSceneItem { let items = MusicCatalog.items; return items[min(selected, items.count - 1)] }
+    var sceneTrack: MusicTrack? { musicItem.track }
+    var sceneTracks: [MusicTrack] { MusicCatalog.tracks(collection) }
+    var sceneNumber: Int { (columnFiles.firstIndex(of: selected) ?? 0) + 1 }
+    var sceneArtwork: URL? { sceneTrack != nil ? sceneTrack?.artwork : musicLibrary.tracks(collection).first?.artwork }
+    var collection: MusicCollection { musicItem.collection! }
+    private var inspectionTask: Task<Void, Never>?
+    @Published var freeSceneReady = false
+    @Published var musicDetailTab = 0
+    @Published var musicSearchQuery = ""
+    @Published var musicSearchResultQuery = ""
+    @Published var musicSearchResults: [MusicTrack] = []
+    @Published var clickPoint: CGPoint = .zero
+    @Published var clickID = 0
     /// Set by headless screenshot rendering: no audio device, no sound.
     nonisolated(unsafe) static var headless = false
 
-    @Published var mode: Mode = .boot
+    @Published var mode: Mode = .boot { didSet { updateWatermark() } }
     @Published var selected = 0
     @Published var hover: Int?
-    @Published var modal: Modal?
+    @Published var modal: Modal? { didSet { updateWatermark() } }
     @Published var tab = 0 {
         didSet { if mode == .detail, oldValue != tab { audio.play(.uiTick) } }
     }
@@ -32,8 +50,8 @@ final class AppModel: ObservableObject {
     @Published var toast: String?
     @Published var accessLog: [(id: String, time: String)] = []
     @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs(); audio.play(.confirm) } }
-    @Published var idleDrift = UserDefaults.standard.object(forKey: "rhine-idle") as? Bool ?? false { didSet { applyPrefs(); audio.play(.confirm) } }
-    @Published var dark = UserDefaults.standard.bool(forKey: "rhine-dark") { didSet { applyTheme(); audio.play(.tick) } }
+    @Published var idleDrift = AppModel.loadIdleDrift() { didSet { applyPrefs(); audio.play(.confirm) } }
+    @Published var dark = (Experience.music ? UserDefaults.standard.object(forKey: "rhine-music-dark-5") as? Bool ?? true : UserDefaults.standard.bool(forKey: "rhine-dark")) { didSet { applyTheme(); audio.play(.tick) } }
     @Published var audioPrefs = AppModel.loadAudioPrefs() { didSet { saveAudio() } }
     @Published var quality = RenderQuality.load() { didSet { if oldValue != quality { applyQuality() } } }
     @Published var superPerformance = UserDefaults.standard.bool(forKey: "rhine-super") { didSet { applyQuality(); audio.play(.confirm) } }
@@ -47,6 +65,9 @@ final class AppModel: ObservableObject {
     @Published var viewerStatus = "已组装"
     private var toastTask: Task<Void, Never>?
     private var monitor: Any?
+    private var pointerMonitor: Any?
+    private var pointerDrag = false
+    private var rightPointerDrag = false
 
     var records: [ArchiveRecord] { Archive.records }
     var record: ArchiveRecord { Archive.records[selected] }
@@ -54,29 +75,90 @@ final class AppModel: ObservableObject {
     var columnFiles: [Int] { Archive.columnFiles(lane) }
     private var now: Double { CACurrentMediaTime() }
 
-    init() {
+    init(bootPreview: Bool = false) {
+        let service = MusicService()
+        musicService = service
+        musicLibrary = MusicLibrary(storageURL: Self.headless ? nil : MusicLibrary.defaultStorage, includeBuiltins: Experience.music)
+        musicPlayer = MusicPlayer(service: service, persistent: !Self.headless)
+        musicPresentation = MusicPresentation(library: musicLibrary, player: musicPlayer)
         guard let renderer = MetalRenderer() else { fatalError("Metal is not available") }
         engine = ArchiveEngine()
         viewer = ViewerEngine()
         sceneView = ArchiveView(engine: engine, viewer: viewer, renderer: renderer)
+        selected = musicPresentation.selectedIndex
         columnMemory = Archive.columns.indices.map { Archive.columnFiles($0).first ?? 0 }
         sceneView.canPick = { [weak self] in self?.mode == .archive && self?.modal == nil }
         sceneView.onHover = { [weak self] in
             if self?.hover != $0 { self?.hover = $0 }
         }
         sceneView.onSelect = { [weak self] index, cell in self?.select(index, navigation: .cell(cell)) }
-        sceneView.onStep = { [weak self] direction in self?.stepFile(direction) }
+        sceneView.onOpen = { [weak self] in self?.open() }
+        sceneView.onStep = { [weak self] direction in
+            guard let self else { return }
+            if self.mode == .detail && Experience.music { self.navigateSong(direction) } else { self.stepFile(direction) }
+        }
+        sceneView.onStepColumn = { [weak self] direction in self?.stepColumn(direction) }
+        engine.onInspectionChanged = { [weak self] ready in Task { @MainActor in self?.freeSceneReady = ready } }
         viewer.onStatusChanged = { [weak self] status in
             Task { @MainActor in self?.viewerStatus = status }
         }
         applyPrefs()
         applyTheme(immediate: true)
         applyQuality()
-        if !Self.headless { audio.configure(audioPrefs) }
-        startBootClock()
+        if !Self.headless { configureInterfaceAudio() }
+        musicPresentation.onSelection = { [weak self] index, changed in self?.syncMusicCatalogue(index: index, changed: changed) }
+        musicPlayer.onTransportChanged = { [weak self] busy in
+            guard let self else { return }
+            let playing = self.musicPlayer.status == .playing
+            self.engine.setMusicPlaying(playing)
+            self.viewer.setMusicPlaying(playing)
+            if !Self.headless { self.configureInterfaceAudio() }
+        }
+        if Self.headless && !bootPreview && Experience.music { finishBoot() }
+        else {
+            audio.setScene(.boot)
+            startBootClock()
+            if Experience.music && !Self.headless { prepareSceneArtwork() }
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            return MainActor.assumeIsolated { self.handle(event) ? nil : event }
+            let handled = MainActor.assumeIsolated { self.handle(event) }
+            return handled ? nil : event
+        }
+        if Experience.music {
+            pointerMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .rightMouseDragged, .rightMouseUp, .scrollWheel, .magnify, .rotate]) { [weak self] event in
+                guard let self else { return event }
+                let handled = MainActor.assumeIsolated { self.routeSceneEvent(event) }
+                return handled ? nil : event
+            }
+        }
+    }
+
+    /// SwiftUI's transparent stage covers the native scene. Forward only its open 3D region;
+    /// controls, text fields, menus and sheets retain their normal native event handling.
+    private func routeSceneEvent(_ event: NSEvent) -> Bool {
+        if event.type == .leftMouseDown, event.window === sceneView.window, sceneView.bounds.width > 0 {
+            let p = sceneView.convert(event.locationInWindow, from: nil)
+            clickPoint = CGPoint(x: p.x / sceneView.bounds.width * 1920, y: (1 - p.y / sceneView.bounds.height) * 1080)
+            clickID += 1
+        }
+        guard modal == nil, (event.window ?? NSApp.keyWindow) === sceneView.window else { pointerDrag = false; rightPointerDrag = false; return false }
+        let point = sceneView.convert(event.locationInWindow, from: nil)
+        let bounds = sceneView.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        let x = point.x / bounds.width * 1920, y = (1 - point.y / bounds.height) * 1080
+        let sceneArea = x > 130 && x < 960 && y > 235 && y < 890
+        switch event.type {
+        case .leftMouseDown where sceneArea: pointerDrag = true; sceneView.mouseDown(with: event); return true
+        case .leftMouseDragged where pointerDrag: sceneView.mouseDragged(with: event); return true
+        case .leftMouseUp where pointerDrag: pointerDrag = false; sceneView.mouseUp(with: event); return true
+        case .rightMouseDown where sceneArea && (viewer.isOpen || engine.detailRequested): rightPointerDrag = true; sceneView.rightMouseDown(with: event); return true
+        case .rightMouseDragged where rightPointerDrag: sceneView.rightMouseDragged(with: event); return true
+        case .rightMouseUp where rightPointerDrag: rightPointerDrag = false; sceneView.rightMouseUp(with: event); return true
+        case .scrollWheel where sceneArea: sceneView.scrollWheel(with: event); return true
+        case .magnify where sceneArea && (viewer.isOpen || engine.detailRequested): sceneView.magnify(with: event); return true
+        case .rotate where sceneArea && (viewer.isOpen || engine.detailRequested): sceneView.rotate(with: event); return true
+        default: return false
         }
     }
 
@@ -85,19 +167,42 @@ final class AppModel: ObservableObject {
         engine.idleDrift = idleDrift
         viewer.reduced = reduced
         engine.wake()
-        UserDefaults.standard.set(reduced, forKey: "rhine-reduced")
-        UserDefaults.standard.set(idleDrift, forKey: "rhine-idle")
+        if !Self.headless {
+            UserDefaults.standard.set(reduced, forKey: "rhine-reduced")
+            UserDefaults.standard.set(idleDrift, forKey: Experience.music ? "rhine-music-idle-1" : "rhine-idle")
+        }
+    }
+
+    static func loadIdleDrift(from defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Experience.music ? "rhine-music-idle-1" : "rhine-idle") as? Bool ?? Experience.music
     }
 
     private func applyTheme(immediate: Bool = false) {
-        UserDefaults.standard.set(dark, forKey: "rhine-dark")
+        if !Self.headless { UserDefaults.standard.set(dark, forKey: Experience.music ? "rhine-music-dark-5" : "rhine-dark") }
         engine.setTheme(dark: dark, time: now, immediate: immediate)
         viewer.theme = dark ? 1 : 0
     }
 
+    private func updateWatermark() {
+        guard Experience.music else { return }
+        let mark: SIMD4<Float>
+        if mode == .boot { mark = .zero }
+        else if let modal {
+            switch modal {
+            case .library: mark = SIMD4(0.51, 0.59, 0.39, 0.13)
+            case .search: mark = SIMD4(0.80, 0.59, 0.42, 0.15)
+            case .saved: mark = SIMD4(0.52, 0.56, 0.40, 0.14)
+            case .settings: mark = SIMD4(0.82, 0.72, 0.36, 0.14)
+            }
+        } else { mark = mode == .detail ? SIMD4(0.78, 0.56, 0.40, 0.12) : SIMD4(0.52, 0.34, 0.40, 0.055) }
+        engine.setWatermark(mark, behindScene: modal == nil, immediate: Self.headless)
+    }
+
     private func applyQuality() {
-        quality.save()
-        UserDefaults.standard.set(superPerformance, forKey: "rhine-super")
+        if !Self.headless {
+            quality.save()
+            UserDefaults.standard.set(superPerformance, forKey: "rhine-super")
+        }
         sceneView.applyQuality(effectiveQuality, superPerformance: superPerformance)
     }
 
@@ -125,7 +230,59 @@ final class AppModel: ObservableObject {
         d.set(audioPrefs.music, forKey: "rhine-music")
         d.set(audioPrefs.soundVolume, forKey: "rhine-sound-volume")
         d.set(audioPrefs.musicVolume, forKey: "rhine-music-volume")
-        if !Self.headless { audio.configure(audioPrefs) }
+        if !Self.headless { configureInterfaceAudio() }
+    }
+
+    private func configureInterfaceAudio() {
+        var prefs = audioPrefs
+        if Experience.music { prefs.music = false }
+        audio.configure(prefs)
+    }
+
+    private func syncMusicCatalogue(index: Int, changed: Bool) {
+        if changed {
+            sceneView.clearMusicArtwork()
+            sceneView.renderer.clearLabels()
+            columnMemory = Archive.columns.indices.map { Archive.columnFiles($0).first ?? 0 }
+            engine.resetCatalogue(selected: index, time: now)
+        }
+        select(index)
+        sceneView.wakeForSceneChange()
+    }
+
+    private func prepareSceneArtwork() {
+        var urls: [Int: URL] = [:]
+        for (index, item) in MusicCatalog.items.enumerated() { if let url = item.artwork { urls[index] = url } }
+        sceneView.prepareMusicArtwork(selected: selected, urls: urls, high: mode == .detail)
+    }
+
+    func locatePlaying() {
+        musicPresentation.locatePlaying()
+        if mode == .archive { open() }
+    }
+
+    func playSelection() {
+        if let track = sceneTrack {
+            if musicPlayer.current?.id == track.id && musicPlayer.collectionID == (collection.kind == .temporary ? nil : collection.id) { musicPlayer.toggle() }
+            else { musicPlayer.play(track, in: sceneTracks, collectionID: collection.kind == .temporary ? nil : collection.id) }
+        } else { musicPlayer.playCollection(sceneTracks, collectionID: collection.id) }
+    }
+
+    func selectCollection(_ collection: MusicCollection) {
+        guard let index = MusicCatalog.items.firstIndex(where: { $0.collection?.id == collection.id }) else { return }
+        select(index)
+    }
+
+    func navigateSong(_ direction: Int) {
+        let files = columnFiles
+        guard files.count > 1, let current = files.firstIndex(of: selected) else { return }
+        let next = files[(current + direction + files.count) % files.count]
+        let keepPaused = musicPlayer.status == .paused || musicPlayer.status == .idle || musicPlayer.status == .failed
+        select(next, navigation: .row(direction))
+        guard let track = sceneTrack else { return }
+        let id = collection.kind == .temporary ? nil : collection.id
+        if keepPaused { musicPlayer.selectPaused(track, in: sceneTracks, collectionID: id) }
+        else { musicPlayer.play(track, in: sceneTracks, collectionID: id) }
     }
 
     // MARK: Opening clock
@@ -146,10 +303,15 @@ final class AppModel: ObservableObject {
     }
 
     private func tickBoot() {
+        advanceBoot(to: bootTime(at: Date()))
+    }
+
+    func advanceBoot(to t: Double) {
         guard mode == .boot else { bootTimer?.invalidate(); bootTimer = nil; return }
-        let t = bootTime(at: Date())
-        audio.updateBoot(appTime: t, previous: lastBootTime)
-        if let previous = lastBootTime, BootMotion.hasTyping(between: previous + 5, and: t + 5) { audio.play(.key) }
+        if !Self.headless {
+            audio.updateBoot(appTime: t, previous: lastBootTime)
+            if let previous = lastBootTime, BootMotion.hasTyping(between: previous + 5, and: t + 5) { audio.play(.key) }
+        }
         lastBootTime = t
         if t >= BootMotion.endTime { finishBoot() }
     }
@@ -164,6 +326,7 @@ final class AppModel: ObservableObject {
         engine.select(selected, time: now)
         engine.wake()
         audio.setScene(.archive)
+        if Experience.music && !Self.headless { prepareSceneArtwork() }
     }
 
     /// ENTER SYSTEM: the opening is cut short by the user.
@@ -176,16 +339,23 @@ final class AppModel: ObservableObject {
     func select(_ index: Int, navigation: ArchiveNavigation? = nil) {
         guard mode != .boot else { return }
         let index = (index + records.count) % records.count
-        if mode == .detail { mode = .archive; engine.setDetail(false, time: now); audio.setScene(.archive) }
+        let keepDetail = Experience.music && mode == .detail
+        if mode == .detail && !keepDetail { mode = .archive; engine.setDetail(false, time: now); audio.setScene(.archive) }
         if case .lane(let direction) = navigation {
             audio.play(.column, pan: Float(direction) * 0.45)
         } else if index != selected || navigation != nil {
             audio.play(.tick)
         }
         selected = index
+        if Experience.music { musicPresentation.select(index) }
         columnMemory[lane] = index
         tab = 0
         engine.select(index, navigation: navigation, time: now)
+        if keepDetail { engine.setDetail(true, time: now) }
+        if Experience.music {
+            if viewer.isOpen { viewer.selectLabel(index) }
+            prepareSceneArtwork()
+        }
     }
 
     func stepFile(_ direction: Int) {
@@ -202,15 +372,21 @@ final class AppModel: ObservableObject {
     func open() {
         guard mode == .archive else { return }
         mode = .detail
+        freeSceneReady = false
         accessLog.insert((record.id, Date.now.formatted(.dateTime.hour().minute().second())), at: 0)
         engine.setDetail(true, time: now)
         audio.setScene(.detail)
         audio.play(.open)
+        if Experience.music { prepareSceneArtwork(); sceneView.wakeForSceneChange() }
     }
 
     func back() {
         guard mode == .detail else { return }
         mode = .archive
+        inspectionTask?.cancel()
+        freeSceneReady = false
+        if Experience.music { viewer.close(); prepareSceneArtwork() }
+        sceneView.wakeForSceneChange()
         engine.setDetail(false, time: now)
         audio.setScene(.archive)
         audio.play(.back)
@@ -328,9 +504,24 @@ final class AppModel: ObservableObject {
             if event.keyCode == 53 { dismissModal(); return true }
             return false
         }
+        if let editor = event.window?.firstResponder as? NSTextView, editor.isEditable { return false }
+        if Experience.music && mode == .detail {
+            switch event.keyCode {
+            case 123, 126: navigateSong(-1)
+            case 124, 125: navigateSong(1)
+            case 53: back()
+            case 115: engine.resetMusicInspection()
+            case 49: if musicPlayer.current == nil { playSelection() } else { musicPlayer.toggle() }
+            case 45: navigateSong(1)
+            case 24, 69: engine.zoomInspection(by: 0.08)
+            case 27, 78: engine.zoomInspection(by: -0.08)
+            default: return false
+            }
+            return true
+        }
         if viewerOpen {
             switch event.keyCode {
-            case 53: closeViewer()                                  // esc
+            case 53: if Experience.music { back() } else { closeViewer() }
             case 115: resetViewer()                                 // home
             case 123: viewer.panStep(SIMD2(-1, 0))
             case 124: viewer.panStep(SIMD2(1, 0))
@@ -338,11 +529,20 @@ final class AppModel: ObservableObject {
             case 125: viewer.panStep(SIMD2(0, -1))
             case 24, 69: viewer.dolly(factor: 1 / 1.12)             // = / keypad +
             case 27, 78: viewer.dolly(factor: 1.12)                 // - / keypad -
-            default: break
+            case 49 where Experience.music:
+                if musicPlayer.current == nil { playSelection() }
+                else { musicPlayer.toggle() }
+            case 45 where Experience.music: musicPlayer.next()
+            default: return false
             }
             return true
         }
         switch (mode, event.keyCode) {
+        case (_, 49) where Experience.music:
+            if musicPlayer.current == nil { playSelection() }
+            else { musicPlayer.toggle() }
+            return true
+        case (_, 45) where Experience.music: navigateSong(1); return true
         case (_, 44) where event.characters == "/": present(.search); return true
         case (_, 123): stepColumn(-1); return true
         case (_, 124): stepColumn(1); return true

@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "playlists": [
+    {
+      "collection": {
+        "id": "builtin-arknights",
+        "title": "明日方舟",
+        "subtitle": "塞壬唱片 · 原声精选",
+        "kind": "builtin"
+      },
+      "tracks": [
+        {
+          "songID": "880374",
+          "title": "Speed of Light",
+          "artist": "塞壬唱片-MSR / DJ Okawari",
+          "album": "Speed of Light",
+          "duration": 245.832,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210322/56cbcd1d0093d8ee8ee22bf6d68ab4a6.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "514584",
+          "title": "Renegade",
+          "artist": "塞壬唱片-MSR",
+          "album": "Renegade",
+          "duration": 234.048,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210322/40a13076601806e37c5394049cebc5b1.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "048738",
+          "title": "Radiant",
+          "artist": "塞壬唱片-MSR",
+          "album": "Radiant",
+          "duration": 252.288,
+          "artwork": "https://web.hycdn.cn/siren/pic/20211101/733831c7d034b83dc78f783f8748cc65.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "048747",
+          "title": "Operation Pyrite",
+          "artist": "塞壬唱片-MSR",
+          "album": "危机合约黄铁·利刃·燃灰OST",
+          "duration": 262.872,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210325/923286f4ab26284016de9ed03150fad7.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "779439",
+          "title": "Immutable",
+          "artist": "塞壬唱片-MSR",
+          "album": "Immutable",
+          "duration": 249.24,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210501/01bdad2a0a6876eaee3c23bf0812a73a.png",
+          "platform": "msr"
+        },
+        {
+          "songID": "125014",
+          "title": "Lullabye",
+          "artist": "塞壬唱片-MSR",
+          "album": "Lullabye",
+          "duration": 270.672,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210322/5fb9a7a5d2045c5c6a16f2c4ed8e08f4.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "306844",
+          "title": "Towards Her Light",
+          "artist": "塞壬唱片-MSR",
+          "album": "Towards Her Light",
+          "duration": 263.2359183673469,
+          "artwork": "https://web.hycdn.cn/siren/pic/20210916/113f508e9ca2f66642cbb85e7a4699be.jpg",
+          "platform": "msr"
+        },
+        {
+          "songID": "232276",
+          "title": "Morning Dew",
+          "artist": "塞壬唱片-MSR",
+          "album": "Morning Dew ",
+          "duration": 200.7783446712018,
+          "artwork": "https://web.hycdn.cn/siren/pic/20230427/b60c8297f9a8f12a161fbf3524474b60.jpg",
+          "platform": "msr"
+        }
+      ]
+    },
+    {
+      "collection": {
+        "id": "builtin-pop",
+        "title": "流行精选",
+        "subtitle": "熟悉的旋律",
+        "kind": "builtin"
+      },
+      "tracks": [
+        {
+          "songID": "1330348068",
+          "title": "起风了",
+          "artist": "冯沁苑(买辣椒也用券)",
+          "album": "起风了",
+          "duration": 325.0,
+          "artwork": "https://p1.music.126.net/diGAyEmpymX8G7JcnElncQ==/109951163699673355.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "28815250",
+          "title": "平凡之路",
+          "artist": "朴树",
+          "album": "猎户星座",
+          "duration": 302.0,
+          "artwork": "https://p2.music.126.net/W_5XiCv3rGS1-J7EXpHSCQ==/18885211718782327.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "66842",
+          "title": "十年",
+          "artist": "陈奕迅",
+          "album": "黑白灰",
+          "duration": 205.0,
+          "artwork": "https://p2.music.126.net/wECqsELfPFdVNLpW0QWhmA==/109951171836564936.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "1901371647",
+          "title": "孤勇者",
+          "artist": "陈奕迅",
+          "album": "孤勇者",
+          "duration": 256.0,
+          "artwork": "https://p2.music.126.net/HXfXIIBCk5w96MiY1Wdsqw==/109951171836610847.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "488249475",
+          "title": "哪里都是你",
+          "artist": "队长",
+          "album": "哪里都是你",
+          "duration": 222.0,
+          "artwork": "https://p1.music.126.net/lnOnBbP_H-052Hv5ls-QjA==/109951162964628408.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "1890530891",
+          "title": "如果可以",
+          "artist": "韦礼安",
+          "album": "如果可以",
+          "duration": 274.0,
+          "artwork": "https://p1.music.126.net/znTzn19zZvZ4IdlKEOhWRg==/109951166564931690.jpg",
+          "platform": "wy"
+        }
+      ]
+    },
+    {
+      "collection": {
+        "id": "builtin-instrumental",
+        "title": "钢琴与片刻",
+        "subtitle": "留一点安静的时间",
+        "kind": "builtin"
+      },
+      "tracks": [
+        {
+          "songID": "443242",
+          "title": "Summer",
+          "artist": "久石譲",
+          "album": "ENCORE",
+          "duration": 153.0,
+          "artwork": "https://p1.music.126.net/mRQX2v6Ha_uhzMsri8GS6Q==/109951166519120083.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "22829932",
+          "title": "River Flows in You",
+          "artist": "Yiruma",
+          "album": "The Best - Reminiscent 10th Anniversary",
+          "duration": 214.0,
+          "artwork": "https://p1.music.126.net/hG_GIDqq9UP_uMStU11Tuw==/109951165967036244.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "443249",
+          "title": "One Summer's Day",
+          "artist": "久石譲",
+          "album": "ENCORE",
+          "duration": 271.0,
+          "artwork": "https://p1.music.126.net/mRQX2v6Ha_uhzMsri8GS6Q==/109951166519120083.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "437715323",
+          "title": "Merry Christmas Mr. Lawrence",
+          "artist": "坂本龍一",
+          "album": "Merry Christmas Mr. Lawrence (Original Motion Picture Soundtrack)",
+          "duration": 276.0,
+          "artwork": "https://p2.music.126.net/PywoXPKK3AjseU0Wx9wdXw==/109951167267731534.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "500071",
+          "title": "aqua",
+          "artist": "坂本龍一",
+          "album": "BTTB",
+          "duration": 270.0,
+          "artwork": "https://p2.music.126.net/23bM5re9Joy3CVQPzZbeZA==/19194174486198557.jpg",
+          "platform": "wy"
+        },
+        {
+          "songID": "22676167",
+          "title": "Flower Dance",
+          "artist": "DJ OKAWARI",
+          "album": "Kaleidoscope",
+          "duration": 268.0,
+          "artwork": "https://p1.music.126.net/oRnbMDDry3NlmqR-pZz4Kw==/109951168761288516.jpg",
+          "platform": "wy"
+        }
+      ]
+    }
+  ]
+}

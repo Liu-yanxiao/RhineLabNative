@@ -7,6 +7,9 @@
 
 # Packaged .app bundle produced by scripts/build-app.sh
 build/
+WebPlayer/node_modules
+WebPlayer/dist/
+WebPlayer/.online-data/
 
 # Xcode
 *.xcodeproj

@@ -53,7 +53,12 @@ enum Surfaces {
         "Subsurface_Optics": 0x939e9f, "Optical_Edges": 0xbbc3bc, "Carbon_Ink": 0xb6bdb8,
     ]
     static func darkColor(for name: String) -> SIMD3<Float> {
-        srgbLinear(darkSurfaces[name] ?? (name.contains("Orange") ? 0xbb8850 : 0x969f9f))
+        if Experience.music {
+            let night: [String: UInt32] = ["Frosted_Polymer": 0xc2d4e8, "Ivory_Edges": 0x8495aa, "Optical_Diffuser": 0x24354b,
+                                           "Titanium_Fasteners": 0xb3c7dd, "Index_Inlay": 0xd9ad7d]
+            if let color = night[name] { return srgbLinear(color) }
+        }
+        return srgbLinear(darkSurfaces[name] ?? (name.contains("Orange") ? 0xbb8850 : 0x969f9f))
     }
 
     static func material(for mesh: GLBMesh) -> (mat: SurfaceMat, kind: SurfaceKind) {
@@ -67,26 +72,26 @@ enum Surfaces {
         var kind: SurfaceKind = Surfaces.arraySurfaces.contains(mesh.materialName) ? .opaque : .internalPart
         switch mesh.materialName {
         case "Frosted_Polymer":
-            // Video look: inside the array the shell reads as a warm tan body; the extracted cover stays near-white.
-            set(low: srgbLinear(Look.hex("RL_FROST", 0xe8dccc)), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
-            // Web `arrayMat`: transmission 0.78 with a light clearcoat; the extracted cover clears to 0.9.
-            m.p0.z = 0.78; m.p0.w = 0.9
+            // Milk glass: keep the array warm without turning the overlapping covers brown.
+            set(low: srgbLinear(Look.hex("RL_FROST", 0xf3eee7)), rl: 0.28, high: srgbLinear(0xfffdfa), rh: 0.21, metalLow: 0, metalHigh: 0)
+            // A light clearcoat catches the rim; the extracted cover clears to 0.9.
+            m.p0.z = 0.86; m.p0.w = 0.9
             m.p1 = SIMD4(0.12, 2, 1.46, 0)
-            // Inside the array the body is thicker and tinted (video look): longer oblique paths pick up the warm tone.
-            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
+            // Longer oblique paths pick up a subtle champagne tint.
+            m.p2 = SIMD4(0.3, 0.25, Look.number("RL_THICK", 0.18), Look.number("RL_ATTEN_DIST", 0.65))
             m.atten = SIMD4(srgbLinear(0xeee6df), 1)
-            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xe6dccc)), 1)
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xf0e8dd)), 1)
             kind = .frost
         case "Ivory_Edges":
             // Video look: the body plate is translucent and tinted like the cover (web keeps it opaque in the array).
-            set(low: srgbLinear(Look.hex("RL_IVORY", 0xe8dccc)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
-            m.p0.z = Look.number("RL_IVORY_T", 0.6); m.p0.w = 0.65
+            set(low: srgbLinear(Look.hex("RL_IVORY", 0xf0e8dd)), rl: 0.38, high: srgbLinear(0xf0e7df), rh: 0.31, metalLow: 0, metalHigh: 0)
+            m.p0.z = Look.number("RL_IVORY_T", 0.76); m.p0.w = 0.65
             m.p1 = SIMD4(0.04, 1e9, 1.46, 0)
-            m.p2 = SIMD4(0, 0, Look.number("RL_THICK", 0.28), Look.number("RL_ATTEN_DIST", 0.25))
-            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xe6dccc)), 1)
+            m.p2 = SIMD4(0, 0, Look.number("RL_THICK", 0.18), Look.number("RL_ATTEN_DIST", 0.65))
+            m.attenArray = SIMD4(srgbLinear(Look.hex("RL_ATTEN", 0xf0e8dd)), 1)
             kind = .ivory
         case "Optical_Diffuser":
-            set(low: srgbLinear(0xa09484), rl: 0.7, high: srgbLinear(0xe2dad4), rh: 0.7, metalLow: 0, metalHigh: 0)
+            set(low: srgbLinear(0xc8bcae), rl: 0.7, high: srgbLinear(0xe2dad4), rh: 0.7, metalLow: 0, metalHigh: 0)
         case "Titanium_Fasteners":
             let c = simd_min(glb * 1.6, SIMD3<Float>(repeating: 0.95)); set(low: c, rl: 0.28, high: c, rh: 0.28, metalLow: 0.5, metalHigh: 0.5)
         case "Index_Inlay":
@@ -104,6 +109,13 @@ enum Surfaces {
         }
         m.p1.w = kind.rawValue
         m.dark = SIMD4(darkColor(for: mesh.materialName), 0)
+        if Experience.music {
+            m.p0.x = 0; m.p0.y = 0
+            m.p2.x = 0.16; m.p2.y = 0.2
+            if mesh.materialName == "Frosted_Polymer" {
+                m.colorLow.w = 0.48; m.colorHigh.w = 0.44; m.dark.w = 0.48
+            }
+        }
         return (m, kind)
     }
 

@@ -5,9 +5,19 @@ import CoreGraphics
 enum LabelImage {
     static let width = 1024, height = 440
     private static var cache: [Int: CGImage] = [:]
+    private static let lock = NSLock()
+    static func invalidate(_ index: Int) { lock.lock(); cache[index] = nil; lock.unlock() }
+    static func clear() { lock.lock(); cache.removeAll(); lock.unlock() }
 
     static func image(for index: Int) -> CGImage {
+        lock.lock(); defer { lock.unlock() }
         if let hit = cache[index] { return hit }
+        if Experience.music {
+            let image = MusicPrint.image(for: index)
+            if cache.count >= 8 { cache.removeAll() }
+            cache[index] = image
+            return image
+        }
         let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

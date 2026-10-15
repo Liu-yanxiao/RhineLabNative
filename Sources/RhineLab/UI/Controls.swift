@@ -69,7 +69,7 @@ struct ArrowButton: View {
                 .background(hovering ? pal.field : Color.clear)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RhineButtonStyle(active: Experience.music))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.3), value: hovering)
     }

@@ -15,6 +15,8 @@ struct RenderQuality: Equatable, Codable {
     static let performance = RenderQuality(scale: 80, pixelRatio: 1, antialias: true, shadows: 1024, aoSamples: 0,
                                            aoResolution: 0.5, depthOfField: 0, transmission: 0.5, anisotropy: 4)
     static let original = RenderQuality()
+    static let musicBalanced = RenderQuality(scale: 100, pixelRatio: 2, antialias: true, shadows: 1024, aoSamples: 8,
+                                            aoResolution: 0.5, depthOfField: 0, transmission: 0.75, anisotropy: 16)
     static let high = RenderQuality(scale: 125, pixelRatio: 2, antialias: true, shadows: 4096, aoSamples: 32,
                                     aoResolution: 1, depthOfField: 100, transmission: 1, anisotropy: 16)
     static let ultra = RenderQuality(scale: 150, pixelRatio: 2, antialias: true, shadows: 4096, aoSamples: 64,
@@ -36,15 +38,15 @@ struct RenderQuality: Equatable, Codable {
     var preset: Preset? { Preset.allCases.first { $0.quality == self } }
 
     /// Full-size buffers are capped at 8 294 400 pixels (3840 × 2160).
-    static let pixelBudget = 8_294_400
+    static var pixelBudget: Int { Experience.music ? 5_000_000 : 8_294_400 }
     static let superPixelBudget = 921_600
 
     /// Bumped whenever the defaults change, so a saved copy of old defaults does not outlive them.
-    static let storageKey = "rhine-quality-3"
+    static var storageKey: String { Experience.music ? "rhine-music-quality-5" : "rhine-quality-3" }
 
     static func load() -> RenderQuality {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let q = try? JSONDecoder().decode(RenderQuality.self, from: data) else { return .original }
+              let q = try? JSONDecoder().decode(RenderQuality.self, from: data) else { return Experience.music ? .musicBalanced : .original }
         return q
     }
 

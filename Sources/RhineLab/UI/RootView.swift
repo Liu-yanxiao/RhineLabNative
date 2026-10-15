@@ -22,8 +22,8 @@ struct RootView: View {
         }
         .ignoresSafeArea()
         .background(pal.paper)
-        .environment(\.palette, model.dark ? .dark : .light)
-        .animation(.easeInOut(duration: 0.85), value: model.dark)
+        .environment(\.palette, model.dark ? .activeDark : .light)
+        .animation(.easeInOut(duration: Experience.music ? 0.65 : 0.85), value: model.dark)
     }
 }
 
@@ -31,7 +31,7 @@ struct RootView: View {
 private struct DarkAtmosphere: View {
     @Environment(\.palette) private var pal
     var body: some View {
-        let paper = Palette.dark.paper
+        let paper = Palette.activeDark.paper
         ZStack {
             LinearGradient(stops: [.init(color: paper, location: 0), .init(color: paper.opacity(0.82), location: 0.11),
                                    .init(color: paper.opacity(0), location: 0.40)], startPoint: .top, endPoint: .bottom)
@@ -47,7 +47,46 @@ struct Stage: View {
     private let ease = Animation.easeOut(duration: 0.45)
 
     var body: some View {
+        if Experience.music {
+            ZStack {
+                if model.mode == .boot {
+                    BootView().id(model.bootID).transition(.opacity)
+                    MusicThemeSwitch().place(right: 59, top: 114)
+                    Button { model.skipBoot() } label: {
+                        HStack(spacing: 25) { Text("ENTER SYSTEM"); Text("↗") }
+                            .font(Theme.font(14)).tracking(1.3).padding(.vertical, 12)
+                    }.buttonStyle(RhineButtonStyle()).place(right: 59, bottom: 54)
+                } else {
+                    ZStack {
+                        ArchiveAtmosphere().opacity(model.dark ? 0 : (model.modal == nil ? 1 : 0.45))
+                            .animation(.easeOut(duration: 0.25), value: model.modal).allowsHitTesting(false)
+                        LinearGradient(stops: [.init(color: .clear, location: 0.5),
+                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.6) : Palette.light.paper.opacity(0.6), location: 0.76),
+                                               .init(color: model.dark ? Palette.activeDark.paper.opacity(0.9) : Palette.light.paper.opacity(0.9), location: 1)],
+                                       startPoint: .leading, endPoint: .trailing).opacity(model.modal == nil ? 1 : 0)
+                            .animation(.easeOut(duration: 0.25), value: model.modal).allowsHitTesting(false)
+                        MusicStage()
+                    }.transition(.opacity)
+                }
+                if model.clickID > 0 { RhineClickFeedback().id(model.clickID).position(model.clickPoint).allowsHitTesting(false) }
+            }
+            .animation(model.reduced ? nil : .easeOut(duration: 0.55), value: model.mode)
+            .foregroundStyle(model.dark ? Palette.activeDark.ink : Palette.light.ink)
+            .environment(\.colorScheme, model.dark ? .dark : .light)
+            .environmentObject(model.musicLibrary)
+            .environmentObject(model.musicPlayer)
+        } else {
+            archiveBody
+        }
+    }
+
+    private var archiveBody: some View {
         ZStack {
+            if model.mode != .boot && !model.viewerOpen {
+                ArchiveAtmosphere()
+                    .opacity(model.dark ? 0 : 1)
+                    .allowsHitTesting(false)
+            }
             Group {
                 if model.mode == .boot { BootView().transition(.opacity) }
                 if model.mode != .boot {
@@ -71,6 +110,30 @@ struct Stage: View {
         .animation(ease, value: model.mode)
         .animation(ease, value: model.modal)
         .animation(ease, value: model.toast)
+    }
+}
+
+/// The original film lets the array dissolve into an unprinted margin around the terminal.
+/// Keep this on the stage so exported screenshots have the same treatment as the window.
+private struct ArchiveAtmosphere: View {
+    @Environment(\.palette) private var pal
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        ZStack {
+            LinearGradient(stops: [
+                .init(color: pal.paper.opacity(0.88), location: 0),
+                .init(color: pal.paper.opacity(0.32), location: 0.18),
+                .init(color: pal.paper.opacity(0), location: 0.38)
+            ], startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: [
+                .init(color: pal.paper, location: 0),
+                .init(color: pal.paper.opacity(0.92), location: 0.12),
+                .init(color: pal.paper.opacity(0.38), location: 0.26),
+                .init(color: pal.paper.opacity(0), location: 0.43)
+            ], startPoint: .bottom, endPoint: .top)
+        }
+        .opacity(model.mode == .detail ? 0.55 : 1)
     }
 }
 

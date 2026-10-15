@@ -21,7 +21,7 @@ final class ViewerEngine {
     static let near: Float = 0.3, far: Float = 120
     static let minDistance: Float = 5, maxDistance: Float = 28, maxFocusRadius: Float = 5
     static let initialPosition = SIMD3<Float>(7.2, 3.8, 12)
-    static let background = SIMD3<Float>(0xea, 0xe5, 0xe1) / 255
+    static let background = ArchiveEngine.lightBackground
     static let darkBackground = SIMD3<Float>(0x11, 0x18, 0x1b) / 255
     static let darkFog = SIMD3<Float>(0x26, 0x31, 0x36) / 255
     /// 0 light ... 1 dark, set when the study opens (the theme cannot change while it is open).
@@ -46,6 +46,31 @@ final class ViewerEngine {
     private(set) var isOpen = false
     private(set) var labelIndex = 0
     var reduced = false
+    var musicDetail = false
+    private var musicPlaying = false
+    private var musicGain: Float = 0
+    private var pendingLabel: Int?
+    private var swapElapsed: Float = 1
+    private var musicBackdrop: [(position: SIMD4<Float>, theme: Float, label: Int)] = []
+    func setMusicBackdrop(_ frame: RenderFrame) {
+        lock.lock(); defer { lock.unlock() }
+        guard let selected = frame.cards.first else { return }
+        let anchor = selected.position + SIMD3<Float>(0, 1.85, 0)
+        musicBackdrop = frame.arrayCards.enumerated().compactMap { index, card in
+            let p = SIMD3(card.x, card.y, card.z) - anchor
+            guard simd_length(p) < 22 else { return nil }
+            return (SIMD4(p, card.w), frame.arrayTheme.indices.contains(index) ? frame.arrayTheme[index] : theme,
+                    frame.arrayLabels.indices.contains(index) ? frame.arrayLabels[index] : 0)
+        }
+    }
+    var isMusicPlaybackOnly: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return musicDetail && musicPlaying && !reduced && !resetting && pendingLabel == nil && swapElapsed >= 0.64
+            && abs(goalRoll - poseRoll) < 0.00001 && simd_distance_squared(focus, goalFocus) < 1e-10
+            && abs(log(pose.radius) - log(goal.radius)) < 1e-4 && abs(pose.phi - goal.phi) < 1e-4
+            && abs(atan2(sin(goal.theta - pose.theta), cos(goal.theta - pose.theta))) < 1e-4
+    }
+    func setMusicPlaying(_ playing: Bool) { lock.lock(); defer { lock.unlock() }; musicPlaying = playing; wake() }
     var onActivityChanged: ((Bool) -> Void)?
     var onStatusChanged: ((String) -> Void)?
     private(set) var isAnimating = false
@@ -56,6 +81,8 @@ final class ViewerEngine {
     private var goalFocus = SIMD3<Float>(repeating: 0)
     private var pose = Spherical(ViewerEngine.initialPosition)
     private var focus = SIMD3<Float>(repeating: 0)
+    private var goalRoll: Float = 0
+    private var poseRoll: Float = 0
     private var resetFrom = Spherical(ViewerEngine.initialPosition)
     private var resetFocus = SIMD3<Float>(repeating: 0)
     private var resetElapsed: Float = 0
@@ -84,6 +111,14 @@ final class ViewerEngine {
         lock.lock(); defer { lock.unlock() }
         isOpen = false
         resetting = false
+    }
+
+    func selectLabel(_ index: Int) {
+        lock.lock(); defer { lock.unlock() }
+        if musicDetail && !reduced && labelIndex != index {
+            pendingLabel = index; swapElapsed = 0
+        } else { labelIndex = index; pendingLabel = nil; swapElapsed = 1 }
+        wake()
     }
 
     func wake() {
@@ -115,8 +150,14 @@ final class ViewerEngine {
         let k = 2 * Float.pi / max(1, viewHeight) * 0.65
         goal.theta -= dx * k
         goal.phi -= dy * k
-        goal.makeSafe()
+        if !musicDetail { goal.makeSafe() }
         wake()
+    }
+
+    func roll(by radians: Float) {
+        lock.lock(); defer { lock.unlock() }
+        guard radians.isFinite else { return }
+        interruptReset(); goalRoll += radians; wake()
     }
 
     /// Screen-space pan by a mouse drag in points.
@@ -141,7 +182,9 @@ final class ViewerEngine {
     func dolly(factor: Float) {
         lock.lock(); defer { lock.unlock() }
         interruptReset()
-        goal.radius = max(Self.minDistance, min(Self.maxDistance, goal.radius * factor))
+        let next = goal.radius * factor
+        guard next.isFinite, next > 0 else { return }
+        goal.radius = musicDetail ? max(0.5, next) : max(Self.minDistance, min(Self.maxDistance, next))
         wake()
     }
 
@@ -155,7 +198,8 @@ final class ViewerEngine {
     func reset(animated: Bool) {
         lock.lock(); defer { lock.unlock() }
         goalFocus = .zero
-        goal = Spherical(Self.initialPosition)
+        goalRoll = 0
+        goal = Spherical(musicDetail ? SIMD3<Float>(-1.45, 3.79, 10.39) : Self.initialPosition)
         if animated && !reduced {
             resetFrom = pose
             resetFocus = focus
@@ -165,6 +209,7 @@ final class ViewerEngine {
             resetting = false
             pose = goal
             focus = goalFocus
+            poseRoll = 0
         }
         wake()
     }
@@ -179,8 +224,13 @@ final class ViewerEngine {
     /// Right and up axes of the rendered camera.
     private func axes() -> (SIMD3<Float>, SIMD3<Float>) {
         let z = simd_normalize(pose.vector)
-        let x = simd_normalize(simd_cross(SIMD3<Float>(0, 1, 0), z))
+        let x = simd_normalize(simd_cross(cameraUp, z))
         return (x, simd_cross(z, x))
+    }
+
+    private var cameraUp: SIMD3<Float> {
+        let up: SIMD3<Float> = musicDetail ? SIMD3(-cos(pose.phi) * sin(pose.theta), sin(pose.phi), -cos(pose.phi) * cos(pose.theta)) : SIMD3(0, 1, 0)
+        return up * cos(poseRoll) + simd_normalize(simd_cross(up, pose.vector)) * sin(poseRoll)
     }
 
     /// Clamp the requested focus to a 5-unit radius and move the camera by the same amount,
@@ -188,7 +238,7 @@ final class ViewerEngine {
     private func move(by delta: SIMD3<Float>) {
         var next = goalFocus + delta
         let len = simd_length(next)
-        if len > Self.maxFocusRadius { next *= Self.maxFocusRadius / len }
+        if !musicDetail, len > Self.maxFocusRadius { next *= Self.maxFocusRadius / len }
         goalFocus = next
         wake()
     }
@@ -205,6 +255,13 @@ final class ViewerEngine {
         lock.lock(); defer { lock.unlock() }
         now = time
         let dt = Float(min(rawDt, 0.05))
+        musicGain += ((musicPlaying && !reduced ? 1 : 0) - musicGain) * (1 - exp(-5 * dt))
+        if swapElapsed < 0.64 {
+            swapElapsed += dt
+            if swapElapsed >= 0.20, let index = pendingLabel { labelIndex = index; pendingLabel = nil }
+        }
+        poseRoll += (goalRoll - poseRoll) * (reduced ? 1 : 1 - exp(-9 * dt))
+        if abs(goalRoll - poseRoll) < 0.00001 { poseRoll = goalRoll }
 
         if reduced {
             spread = Motion.Spring(value: targetSpread)
@@ -246,11 +303,11 @@ final class ViewerEngine {
         pose.phi = from.phi + (to.phi - from.phi) * angle
         let dTheta = atan2(sin(to.theta - from.theta), cos(to.theta - from.theta))
         pose.theta = from.theta + dTheta * angle
-        pose.makeSafe()
+        if !musicDetail { pose.makeSafe() }
     }
 
     private func updateActivity() {
-        var moving = resetting
+        var moving = resetting || abs(goalRoll - poseRoll) > 0.00001 || swapElapsed < 0.64 || musicGain > 0.002 || (musicPlaying && !reduced)
         if abs(spread.value - targetSpread) > 0 || abs(clarity.value - targetClarity) > 0 { moving = true }
         if simd_distance_squared(focus, goalFocus) > 1e-10 { moving = true }
         if abs(log(pose.radius) - log(goal.radius)) > 1e-4 || abs(pose.phi - goal.phi) > 1e-4
@@ -266,8 +323,10 @@ final class ViewerEngine {
         lock.lock(); defer { lock.unlock() }
         var f = RenderFrame()
         let eye = pose.vector + focus
-        f.view = Matrix.lookAt(eye: eye, target: focus, up: SIMD3(0, 1, 0))
-        f.proj = Matrix.perspective(fovY: Self.fovY, aspect: aspect, near: Self.near, far: Self.far)
+        f.view = Matrix.lookAt(eye: eye, target: focus, up: cameraUp)
+        let far = musicDetail ? max(Self.far, simd_length(eye) + 20) : Self.far
+        f.proj = Matrix.perspective(fovY: Self.fovY, aspect: aspect, near: Self.near, far: far)
+        if musicDetail { f.proj[2][0] = 0.49 }
         f.cameraPosition = eye
         // The detail scene's gentle haze, kept relative to the object so zooming never washes it out.
         let objectDistance = simd_length(eye)
@@ -276,12 +335,24 @@ final class ViewerEngine {
         f.focusDistance = objectDistance
         f.depthOfField = 0
         f.near = Self.near
-        f.far = Self.far
+        f.far = far
         f.effectsOff = 6        // ambient occlusion and depth of field are array-only effects
         f.themeAmount = theme
         f.background = simd_mix(Self.background, Self.darkBackground, SIMD3(repeating: theme))
         f.fogColor = simd_mix(Self.background, Self.darkFog, SIMD3(repeating: theme))
-        f.assembly = AssemblyDraw(spread: spread.value, clarity: clarity.value, labelIndex: labelIndex, theme: theme)
+        let swap: Float = swapElapsed < 0.20 ? -0.65 * (swapElapsed / 0.20) : -0.65 * pow(max(0, 1 - (swapElapsed - 0.20) / 0.44), 3)
+        f.assembly = AssemblyDraw(spread: spread.value, clarity: clarity.value, labelIndex: labelIndex, theme: theme,
+                                  offset: SIMD3(0, swap + 0.025 * sin(Motion.phase(time: now, period: 2 * .pi / 1.4)) * musicGain, 0))
+        if musicDetail {
+            for card in musicBackdrop {
+                f.arrayCards.append(card.position); f.arrayTheme.append(card.theme)
+                let index = card.label % MusicCatalog.items.count
+                if MusicArtwork.image(index) != nil {
+                    f.arrayPrints.append(CardDraw(position: SIMD3(card.position.x, card.position.y, card.position.z), tilt: card.position.w,
+                                                 yaw: 0, quality: 0.85, reveal: 0, labelIndex: index, theme: theme))
+                }
+            }
+        }
         f.time = Float(now)
         return f
     }
