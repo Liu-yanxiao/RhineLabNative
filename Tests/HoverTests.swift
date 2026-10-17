@@ -1,8 +1,85 @@
 import XCTest
 import simd
+import SwiftUI
 @testable import RhineLab
 
 @MainActor final class HoverTests: XCTestCase {
+    func testMouseMovementThroughTheSwiftUIStagePreviewsAndReleasesTheCard() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let renderer = try XCTUnwrap(MetalRenderer(modelDirectory: root.appendingPathComponent("Resources/Models")))
+        let previousHeadless = AppModel.headless
+        AppModel.headless = true
+        defer { AppModel.headless = previousHeadless }
+        let model = AppModel(renderer: renderer)
+        model.reduced = false; model.idleDrift = false
+        let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 1440, height: 810),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: RootView().environmentObject(model))
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(window.acceptsMouseMovedEvents, "the window must request real mouse movement events")
+        var time = CACurrentMediaTime()
+        func advance(_ count: Int) {
+            for _ in 0..<count { time += 1.0 / 60; model.engine.tick(time: time, dt: 1.0 / 60) }
+        }
+        advance(480)
+        let original = model.engine.makeFrame(aspect: 16.0 / 9.0)
+        let location = Archive.location(of: model.selected)
+        let selectedCell = Cell(lane: location.lane, row: location.row)
+        var target: (point: CGPoint, index: Int)?
+        for y in stride(from: 300, through: 800, by: 40) {
+            for x in stride(from: 220, through: 880, by: 40) {
+                let ndc = SIMD2(Float(x) / 960 - 1, 1 - Float(y) / 540)
+                if let hit = model.engine.pick(ndc: ndc, aspect: 16.0 / 9.0), hit.cell != selectedCell {
+                    let viewPoint = CGPoint(x: CGFloat(x) / 1920 * model.sceneView.bounds.width,
+                                            y: (1 - CGFloat(y) / 1080) * model.sceneView.bounds.height)
+                    target = (model.sceneView.convert(viewPoint, to: nil), hit.index)
+                    break
+                }
+            }
+            if target != nil { break }
+        }
+        let hitTarget = try XCTUnwrap(target, "fixture must contain a visible unselected card")
+        func move(_ point: CGPoint) {
+            let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: time,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 77, clickCount: 0, pressure: 0)!
+            NSApp.postEvent(event, atStart: true)
+            while let next = NSApp.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.005), inMode: .default, dequeue: true) {
+                NSApp.sendEvent(next)
+            }
+        }
+        move(hitTarget.point); advance(18)
+        XCTAssertEqual(model.hover, hitTarget.index, "the transparent SwiftUI stage must not hide scene mouse movement")
+        let preview = model.engine.makeFrame(aspect: 16.0 / 9.0)
+        func greatestLift(_ frame: RenderFrame) -> Float {
+            frame.arrayCards.compactMap { card -> Float? in
+                original.arrayCards.first(where: { abs($0.x - card.x) < 0.001 && abs($0.z - card.z) < 0.001 }).map { card.y - $0.y }
+            }.max() ?? 0
+        }
+        XCTAssertGreaterThan(greatestLift(preview), 0.15, "hovering must visibly lift a card before clicking")
+        let outside = model.sceneView.convert(CGPoint(x: model.sceneView.bounds.width * 0.9,
+                                                      y: model.sceneView.bounds.height * 0.85), to: nil)
+        move(outside); advance(24)
+        XCTAssertNil(model.hover, "moving over the interface must clear the preview")
+        XCTAssertLessThan(greatestLift(model.engine.makeFrame(aspect: 16.0 / 9.0)), 0.01)
+        XCTAssertEqual(model.selected, original.cards[0].labelIndex, "hover preview must not change the selected song")
+        move(hitTarget.point)
+        XCTAssertNotNil(model.hover)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        XCTAssertNil(model.hover, "switching away from the window must release the hovered card")
+        move(hitTarget.point)
+        XCTAssertNotNil(model.hover)
+        model.present(.search)
+        XCTAssertNil(model.hover, "opening a modal must release the hovered card")
+        model.dismissModal(); move(hitTarget.point)
+        XCTAssertNotNil(model.hover)
+        window.contentView = nil
+        XCTAssertNil(model.hover, "detaching the scene from a window must release the preview")
+    }
     func testBreathingRemainsSmoothAfterLongSystemUptime() {
         let engine = ArchiveEngine(); engine.targetReveal = 1; engine.idleDrift = true; engine.reduced = false
         let start = 1_336_000.0

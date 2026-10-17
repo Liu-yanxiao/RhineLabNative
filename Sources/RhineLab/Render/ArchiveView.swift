@@ -175,7 +175,10 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     private var browsing = false
     private var caughtMomentum = false
     private var browseVelocity = MusicShelfVelocity()
+    private var pointerInScene = false
+    private var resignHoverObserver: NSObjectProtocol?
     func cancelPointerInteraction() {
+        clearPointerHover()
         engine.cancelBrowse()
         if case .inspect = drag { engine.endMusicInspection() }
         drag = .none; browsing = false; caughtMomentum = false; browseInverse = nil
@@ -214,13 +217,24 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit {
+        if let observer = resignHoverObserver { NotificationCenter.default.removeObserver(observer) }
+    }
 
     override func makeBackingLayer() -> CALayer { CAMetalLayer() }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let observer = resignHoverObserver { NotificationCenter.default.removeObserver(observer); resignHoverObserver = nil }
+        if let window {
+            resignHoverObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                self?.clearPointerHover()
+            }
+        } else { clearPointerHover() }
+        window?.acceptsMouseMovedEvents = true
         updateDrawableSize()
-        guard window != nil, link == nil else { return }
+        // Headless diagnostics advance the simulation explicitly, including hosted UI checks.
+        guard window != nil, link == nil, !AppModel.headless else { return }
         let l = CAMetalDisplayLink(metalLayer: metalLayer)
         l.delegate = self
         l.preferredFrameLatency = 2
@@ -344,6 +358,7 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
 
     override func mouseMoved(with event: NSEvent) {
         guard !viewer.isOpen else { return }
+        pointerInScene = true
         let p = convert(event.locationInWindow, from: nil)
         engine.setPointer(SIMD2(Float(p.x / bounds.width - 0.5), Float(0.5 - p.y / bounds.height)))
         engine.wake()
@@ -353,8 +368,15 @@ final class ArchiveView: NSView, CAMetalDisplayLinkDelegate {
     }
 
     override func mouseExited(with event: NSEvent) {
+        clearPointerHover()
+    }
+
+    func clearPointerHover() {
+        guard pointerInScene else { return }
+        pointerInScene = false
         engine.setPointer(.zero)
         engine.setHover(nil)
+        engine.wake()
         onHover?(nil)
     }
 

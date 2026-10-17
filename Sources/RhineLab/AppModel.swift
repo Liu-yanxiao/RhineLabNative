@@ -75,13 +75,13 @@ final class AppModel: ObservableObject {
     var columnFiles: [Int] { Archive.columnFiles(lane) }
     private var now: Double { CACurrentMediaTime() }
 
-    init(bootPreview: Bool = false) {
+    init(bootPreview: Bool = false, renderer providedRenderer: MetalRenderer? = nil) {
         let service = MusicService()
         musicService = service
         musicLibrary = MusicLibrary(storageURL: Self.headless ? nil : MusicLibrary.defaultStorage, includeBuiltins: Experience.music)
         musicPlayer = MusicPlayer(service: service, persistent: !Self.headless)
         musicPresentation = MusicPresentation(library: musicLibrary, player: musicPlayer)
-        guard let renderer = MetalRenderer() else { fatalError("Metal is not available") }
+        guard let renderer = providedRenderer ?? MetalRenderer() else { fatalError("Metal is not available") }
         engine = ArchiveEngine()
         viewer = ViewerEngine()
         sceneView = ArchiveView(engine: engine, viewer: viewer, renderer: renderer)
@@ -127,7 +127,7 @@ final class AppModel: ObservableObject {
             return handled ? nil : event
         }
         if Experience.music {
-            pointerMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .rightMouseDragged, .rightMouseUp, .scrollWheel, .magnify, .rotate]) { [weak self] event in
+            pointerMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .mouseExited, .leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseDown, .rightMouseDragged, .rightMouseUp, .scrollWheel, .magnify, .rotate]) { [weak self] event in
                 guard let self else { return event }
                 let handled = MainActor.assumeIsolated { self.routeSceneEvent(event) }
                 return handled ? nil : event
@@ -144,6 +144,7 @@ final class AppModel: ObservableObject {
             clickID += 1
         }
         guard modal == nil, (event.window ?? NSApp.keyWindow) === sceneView.window else {
+            sceneView.clearPointerHover()
             if pointerDrag || rightPointerDrag { sceneView.cancelPointerInteraction() }
             pointerDrag = false; rightPointerDrag = false; return false
         }
@@ -153,6 +154,14 @@ final class AppModel: ObservableObject {
         let x = point.x / bounds.width * 1920, y = (1 - point.y / bounds.height) * 1080
         let sceneArea = x > 130 && x < 960 && y > 235 && y < 890
         switch event.type {
+        case .mouseMoved:
+            if sceneArea && mode == .archive && !viewerOpen && !pointerDrag && !rightPointerDrag {
+                sceneView.mouseMoved(with: event)
+            } else { sceneView.clearPointerHover() }
+            // Passive movement must still reach SwiftUI button and control hover handlers.
+            return false
+        case .mouseExited where event.trackingArea?.owner as? ArchiveView === sceneView:
+            sceneView.clearPointerHover(); return false
         case .leftMouseDown where sceneArea: pointerDrag = true; sceneView.mouseDown(with: event); return true
         case .leftMouseDragged where pointerDrag: sceneView.mouseDragged(with: event); return true
         case .leftMouseUp where pointerDrag: pointerDrag = false; sceneView.mouseUp(with: event); return true
