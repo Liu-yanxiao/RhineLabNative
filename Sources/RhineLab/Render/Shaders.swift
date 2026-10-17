@@ -519,10 +519,8 @@ fragment float4 fs_composite(FSOut in [[stage_in]], constant Frame &f [[buffer(1
         float2 span = float2(f.musicMark.z, f.musicMark.z * (f.screen.x / f.screen.y) * (145.0 / 310.0));
         float2 uv = (in.uv - f.musicMark.xy) / span + 0.5;
         if (all(uv >= 0.0) && all(uv <= 1.0)) {
-            // Far geometry dissolves into the background; keep the mark behind its
-            // remaining coverage, while the selected foreground cover stays unmarked.
-            float haze = smoothstep(f.params.y, f.params.z, viewDistance(f, centerDepth));
-            float behind = 1.0 - saturate(scene.a) * (1.0 - haze);
+            // Fog changes a card's colour, never its coverage of the background logo.
+            float behind = 1.0 - saturate(scene.a);
             float mask = mix(1.0, behind, f.musicMarkColor.w);
             float ink = watermark.sample(s, uv).a * f.musicMark.w * mask;
             c = mix(c, f.musicMarkColor.rgb, ink);

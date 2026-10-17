@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Build RhineMusic.app into ./build (release by default, `debug` for a debug build).
+# Set RHINE_APP_DESTINATION to update an installed bundle without leaving a second app in build/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIG=${1:-release}
@@ -32,6 +32,9 @@ PLIST
 xattr -cr "$APP"
 codesign --force --sign - "$APP" >/dev/null 2>&1
 codesign --verify --deep --strict "$APP"
-rm -rf build/RhineMusic.app
-ditto --norsrc --noextattr "$APP" build/RhineMusic.app
-echo "Built build/RhineMusic.app"
+DESTINATION=${RHINE_APP_DESTINATION:-build/RhineMusic.app}
+[[ "$DESTINATION" == *.app ]] || { echo "Destination must be an .app bundle" >&2; exit 1; }
+mkdir -p "$(dirname "$DESTINATION")"
+rm -rf "$DESTINATION"
+ditto --norsrc --noextattr "$APP" "$DESTINATION"
+echo "Built $DESTINATION"

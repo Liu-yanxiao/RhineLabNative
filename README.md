@@ -15,9 +15,13 @@ SwiftUI + Metal + AVPlayer。音乐库每列对应一张歌单，列内循环浏
 
 封面下载最多同时三张，临时网络错误自动重试；坏图片不会堵住后面的请求。当前可见及选中的封面受到缓存保护，离开画面后收回至 24 张预算；纹理更新完成前保留旧封面，避免升级清晰度时短暂空白。
 
+开始播放后接入 macOS“正在播放”和系统媒体键：F7 上一首、F8 播放／暂停、F9 下一首。设置支持 55–100% 窗口不透明度和原生玻璃背景，macOS 26 使用 Liquid Glass，较早系统使用原生模糊材质；“还原”恢复完整不透明。播放详情的频谱／波形读取 AVPlayer 实际音频，随强弱和低频起伏；移入聚焦、点击切换显示。暂停、关闭律动或减弱动态效果时静止，不提供音频样本的流媒体保持静态。
+
 数据：`~/Library/Application Support/RhineLab/MusicLibrary-v4.json`。搜索结果作为临时歌单展示，不自动保存。构建使用 `scripts/build-app.sh`；默认包不含 WebKit、Node 或历史分类种子。原档案体验保留 `--archive`。
 
 验证：`swift test`、`--render-check`、`--playlist-check 输出目录`、`--bench 2880x1620`。最新实现与验证见 [playlist-library-verification.md](docs/playlist-library-verification.md)，音源研究见 [audio-source-research.md](docs/audio-source-research.md)。
+
+`--features-check 输出目录` 静音验证在线音频律动并采集播放页、设置页；`RHINE_APP_DESTINATION=/目标/RhineMusicNative.app scripts/build-app.sh` 可直接更新指定应用，避免另留一份构建包。
 
 ## 原档案体验
 

@@ -32,7 +32,7 @@ final class AppModel: ObservableObject {
     /// Set by headless screenshot rendering: no audio device, no sound.
     nonisolated(unsafe) static var headless = false
 
-    @Published var mode: Mode = .boot { didSet { updateWatermark() } }
+    @Published var mode: Mode = .boot { didSet { updateWatermark(); updateRhythmState() } }
     @Published var selected = 0
     @Published var hover: Int?
     @Published var modal: Modal? { didSet { updateWatermark() } }
@@ -51,6 +51,15 @@ final class AppModel: ObservableObject {
     @Published var accessLog: [(id: String, time: String)] = []
     @Published var reduced = UserDefaults.standard.bool(forKey: "rhine-reduced") { didSet { applyPrefs(); audio.play(.confirm) } }
     @Published var idleDrift = AppModel.loadIdleDrift() { didSet { applyPrefs(); audio.play(.confirm) } }
+    @Published var windowOpacity = WindowAppearance.opacity(UserDefaults.standard.object(forKey: "rhine-window-opacity") as? Double ?? 1) {
+        didSet { if !Self.headless { UserDefaults.standard.set(windowOpacity, forKey: "rhine-window-opacity") }; applyWindowAppearance() }
+    }
+    @Published var windowGlass = UserDefaults.standard.bool(forKey: "rhine-window-glass") {
+        didSet { if !Self.headless { UserDefaults.standard.set(windowGlass, forKey: "rhine-window-glass") }; applyWindowAppearance() }
+    }
+    @Published var rhythmEnabled = UserDefaults.standard.object(forKey: "rhine-rhythm-enabled") as? Bool ?? true {
+        didSet { if !Self.headless { UserDefaults.standard.set(rhythmEnabled, forKey: "rhine-rhythm-enabled") }; updateRhythmState() }
+    }
     @Published var dark = (Experience.music ? UserDefaults.standard.object(forKey: "rhine-music-dark-5") as? Bool ?? true : UserDefaults.standard.bool(forKey: "rhine-dark")) { didSet { applyTheme(); audio.play(.tick) } }
     @Published var audioPrefs = AppModel.loadAudioPrefs() { didSet { saveAudio() } }
     @Published var quality = RenderQuality.load() { didSet { if oldValue != quality { applyQuality() } } }
@@ -113,6 +122,7 @@ final class AppModel: ObservableObject {
             let playing = self.musicPlayer.status == .playing
             self.engine.setMusicPlaying(playing)
             self.viewer.setMusicPlaying(playing)
+            self.updateRhythmState()
             if !Self.headless { self.configureInterfaceAudio() }
         }
         if Self.headless && !bootPreview && Experience.music { finishBoot() }
@@ -179,6 +189,7 @@ final class AppModel: ObservableObject {
         engine.reduced = reduced
         engine.idleDrift = idleDrift
         viewer.reduced = reduced
+        updateRhythmState()
         engine.wake()
         if !Self.headless {
             UserDefaults.standard.set(reduced, forKey: "rhine-reduced")
@@ -194,6 +205,16 @@ final class AppModel: ObservableObject {
         if !Self.headless { UserDefaults.standard.set(dark, forKey: Experience.music ? "rhine-music-dark-5" : "rhine-dark") }
         engine.setTheme(dark: dark, time: now, immediate: immediate)
         viewer.theme = dark ? 1 : 0
+        applyWindowAppearance()
+    }
+
+    func applyWindowAppearance(to window: NSWindow? = nil) {
+        guard !Self.headless, let window = window ?? sceneView.window else { return }
+        WindowAppearance.apply(to: window, opacity: windowOpacity, glass: windowGlass, dark: dark)
+    }
+    private func updateRhythmState() {
+        musicPlayer.rhythm.enabled = Experience.music && rhythmEnabled && !reduced && mode == .detail
+            && musicPlayer.status == .playing && musicPlayer.current?.id == sceneTrack?.id
     }
 
     private func updateWatermark() {
@@ -368,6 +389,7 @@ final class AppModel: ObservableObject {
         if Experience.music {
             if viewer.isOpen { viewer.selectLabel(index) }
             prepareSceneArtwork()
+            updateRhythmState()
         }
     }
 

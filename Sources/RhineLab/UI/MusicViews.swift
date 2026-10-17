@@ -262,6 +262,7 @@ private struct MusicDetail: View {
                     .lineLimit(2).minimumScaleFactor(0.75).frame(height: 102, alignment: .topLeading)
                     .contentTransition(.opacity).padding(.top, 27)
                 Text(track?.artist ?? model.collection.subtitle).font(Theme.font(17)).lineLimit(1).foregroundStyle(pal.muted)
+                if track != nil { MusicRhythmView(trackID: track?.id).padding(.top, 17) }
                 MusicRule().padding(.top, 24)
                 HStack(spacing: 20) {
                     Text(model.collection.title).tracking(0.8)
@@ -627,6 +628,7 @@ private struct MusicSettings: View {
     @Environment(\.palette) private var pal
     var body: some View {
         MusicPanel(title: "设置", subtitle: "PREFERENCES") {
+            ScrollView {
             HStack(alignment: .top, spacing: 70) {
                 VStack(alignment: .leading, spacing: 0) {
                     section("01", "播放", "PLAYBACK")
@@ -647,9 +649,30 @@ private struct MusicSettings: View {
                             MusicChoice(title: "随机", selected: player.shuffle) { player.shuffle = true }
                         }
                     }
+                    Text("F7 上一首  ·  F8 播放／暂停  ·  F9 下一首")
+                        .font(Theme.font(11)).foregroundStyle(pal.body).padding(.top, 24)
                 }.frame(maxWidth: .infinity)
                 VStack(alignment: .leading, spacing: 0) {
                     section("02", "界面", "APPEARANCE")
+                    MusicSettingRow(title: "窗口不透明度") {
+                        Slider(value: $model.windowOpacity, in: 0.55...1).tint(pal.switchOn).frame(width: 165)
+                        Text("\(Int(model.windowOpacity * 100))%")
+                            .font(Theme.font(12)).monospacedDigit().frame(width: 42)
+                        Button("还原") { model.windowOpacity = 1; model.windowGlass = false }
+                            .buttonStyle(RhineButtonStyle()).font(Theme.font(11))
+                    }
+                    MusicSettingRow(title: "玻璃背景") {
+                        HStack(spacing: 6) {
+                            MusicChoice(title: "关闭", selected: !model.windowGlass) { model.windowGlass = false }
+                            MusicChoice(title: "开启", selected: model.windowGlass) { model.windowGlass = true }
+                        }
+                    }
+                    MusicSettingRow(title: "播放页律动") {
+                        HStack(spacing: 6) {
+                            MusicChoice(title: "关闭", selected: !model.rhythmEnabled) { model.rhythmEnabled = false }
+                            MusicChoice(title: "开启", selected: model.rhythmEnabled) { model.rhythmEnabled = true }
+                        }
+                    }
                     MusicSettingRow(title: "画质") {
                         HStack(spacing: 6) {
                             MusicChoice(title: "标准", selected: model.quality == .musicBalanced) { model.quality = .musicBalanced }
@@ -680,10 +703,10 @@ private struct MusicSettings: View {
                     Text("标准画质兼顾流畅与光影细节。")
                         .font(Theme.font(13)).foregroundStyle(pal.muted).padding(.top, 22)
                 }.frame(maxWidth: .infinity)
-            }.padding(.top, 18)
-            Spacer()
+            }.padding(.top, 18).padding(.bottom, 18)
+            }.scrollIndicators(.hidden)
             Text("设置会自动保存。")
-                .font(Theme.font(13)).foregroundStyle(pal.muted).padding(.bottom, 26)
+                .font(Theme.font(13)).foregroundStyle(pal.muted).padding(.top, 12).padding(.bottom, 26)
         }
     }
     private func section(_ number: String, _ title: String, _ subtitle: String) -> some View {

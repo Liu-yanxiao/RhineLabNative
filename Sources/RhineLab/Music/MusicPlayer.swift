@@ -31,6 +31,9 @@ final class MusicPlayer: ObservableObject {
     private let service: any MusicProviding
     private let persistent: Bool
     private let player = AVPlayer()
+    let rhythm = MusicRhythm()
+    private var rhythmTask: Task<Void, Never>?
+    private var systemControls: MusicSystemControls?
     var canSeek: Bool { player.currentItem?.status == .readyToPlay }
     private var index = 0
     private var generation = UUID()
@@ -54,7 +57,9 @@ final class MusicPlayer: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.elapsed = time.seconds.isFinite ? max(0, time.seconds) : 0
-                if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0 { self.duration = d }
+                if let d = self.player.currentItem?.duration.seconds, d.isFinite, d > 0, abs(self.duration - d) > 0.5 {
+                    self.duration = d; self.systemControls?.update()
+                }
             }
         }
         transportObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
@@ -63,6 +68,7 @@ final class MusicPlayer: ObservableObject {
                 self.setStatus(self.player.timeControlStatus == .playing ? .playing : .loading)
             }
         }
+        if persistent { systemControls = MusicSystemControls(player: self) }
     }
 
     func play(_ track: MusicTrack, in tracks: [MusicTrack], collectionID: String?) {
@@ -93,12 +99,14 @@ final class MusicPlayer: ObservableObject {
 
     private func setStatus(_ next: Status) {
         status = next
+        systemControls?.update()
         onTransportChanged?(next == .loading || next == .playing || next == .paused)
     }
 
     private func invalidate() {
         generation = UUID()
         loadTask?.cancel(); loadTask = nil
+        rhythmTask?.cancel(); rhythmTask = nil; rhythm.reset()
         watchdog?.cancel(); watchdog = nil
         itemObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }; endObserver = nil
@@ -139,6 +147,16 @@ final class MusicPlayer: ObservableObject {
         let item = AVPlayerItem(url: url)
         item.preferredForwardBufferDuration = 5
         player.replaceCurrentItem(with: item)
+        let rhythmTicket = rhythm.reset()
+        rhythmTask = Task { [weak self, weak item] in
+            guard let item else { return }
+            do {
+                let tracks = try await item.asset.loadTracks(withMediaType: .audio)
+                try Task.checkCancellation()
+                guard let self, self.generation == ticket, self.player.currentItem === item, let track = tracks.first else { return }
+                item.audioMix = self.rhythm.makeMix(track: track, ticket: rhythmTicket)
+            } catch { /* Unsupported streams keep playing normally, without a fabricated waveform. */ }
+        }
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observed, _ in
             Task { @MainActor in
                 guard let self, self.generation == ticket, self.player.currentItem === observed else { return }
@@ -206,5 +224,6 @@ final class MusicPlayer: ObservableObject {
         let seconds = max(0, min(duration, time))
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         elapsed = seconds
+        systemControls?.update()
     }
 }

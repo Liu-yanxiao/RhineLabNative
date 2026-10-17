@@ -10,8 +10,12 @@ struct RootView: View {
             let scale = min(geo.size.width / 1920, geo.size.height / 1080)
             let _ = { model.windowSize = geo.size }()
             ZStack {
+                if model.windowGlass {
+                    RhineWindowGlass(dark: model.dark).frame(width: geo.size.width, height: geo.size.height).allowsHitTesting(false)
+                }
                 // The 3D view fills the whole window; only the interface keeps its 16:9 stage.
                 ArchiveSceneView(view: model.sceneView)
+                    .opacity(model.windowGlass ? 0.78 : 1)
                 DarkAtmosphere().opacity(model.dark && !model.viewerOpen ? 1 : 0).allowsHitTesting(false)
                 Stage()
                     .frame(width: 1920, height: 1080)
@@ -21,7 +25,7 @@ struct RootView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .ignoresSafeArea()
-        .background(pal.paper)
+        .background(model.windowGlass ? Color.clear : pal.paper)
         .environment(\.palette, model.dark ? .activeDark : .light)
         .animation(.easeInOut(duration: Experience.music ? 0.65 : 0.85), value: model.dark)
     }

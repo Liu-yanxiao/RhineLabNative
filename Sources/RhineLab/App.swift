@@ -6,6 +6,11 @@ struct RhineLabApp: App {
     @StateObject private var model: AppModel
 
     init() {
+        if let index = CommandLine.arguments.firstIndex(of: "--features-check"), CommandLine.arguments.count > index + 1 {
+            let output = CommandLine.arguments[index + 1]
+            Task { @MainActor in let success = await MusicFeatureDiagnostics.run(output: output); exit(success ? 0 : 1) }
+            RunLoop.main.run(); exit(1)
+        }
         if CommandLine.arguments.contains("--search-flicker-check") {
             Task { @MainActor in let success = await MusicSearchFlickerDiagnostics.run(); exit(success ? 0 : 1) }
             RunLoop.main.run(); exit(1)
@@ -94,12 +99,12 @@ struct RhineLabApp: App {
                         window.titlebarAppearsTransparent = true
                         window.titleVisibility = .hidden
                         window.styleMask.insert(.fullSizeContentView)
-                        window.backgroundColor = NSColor(model.dark ? Palette.activeDark.paper : Palette.light.paper)
+                        model.applyWindowAppearance(to: window)
                         window.contentAspectRatio = NSSize(width: 16, height: 9)
                     }
                 }
                 .onChange(of: model.dark) { _, dark in
-                    NSApplication.shared.windows.first?.backgroundColor = NSColor(dark ? Palette.activeDark.paper : Palette.light.paper)
+                    model.applyWindowAppearance()
                 }
         }
         .defaultSize(width: 1440, height: 810)
